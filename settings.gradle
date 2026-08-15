@@ -1,0 +1,2 @@
+// IntelliJ와 Gradle에 표시될 루트 프로젝트 이름을 tracecart로 지정합니다.
+rootProject.name = 'tracecart'
