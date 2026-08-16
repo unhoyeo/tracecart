@@ -37,6 +37,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     // Spring MVC와 내장 Tomcat을 사용해 HTTP 요청을 받는 서버 기능을 제공합니다.
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    // RestClient.Builder 빈과 동기식 외부 HTTP 호출 자동 설정을 제공합니다.
+    implementation 'org.springframework.boot:spring-boot-starter-restclient'
 
     // local과 test 실행 때만 필요한 인메모리 H2 JDBC 드라이버입니다.
     runtimeOnly 'com.h2database:h2'
