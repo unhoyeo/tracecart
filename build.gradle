@@ -28,11 +28,18 @@ repositories {
     mavenCentral()
 }
 
-// 컴파일과 실행에 필요한 최소 라이브러리를 선언합니다.
+// 컴파일과 실행에 필요한 외부 라이브러리를 선언합니다.
 dependencies {
     // Spring Boot가 검증한 호환 버전을 모든 하위 라이브러리에 적용합니다.
     implementation platform(org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES)
 
+    // JPA, Hibernate, Spring Data Repository를 제공합니다.
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     // Spring MVC와 내장 Tomcat을 사용해 HTTP 요청을 받는 서버 기능을 제공합니다.
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+
+    // local과 test 실행 때만 필요한 인메모리 H2 JDBC 드라이버입니다.
+    runtimeOnly 'com.h2database:h2'
+    // dev와 prod 실행 때만 필요한 PostgreSQL JDBC 드라이버입니다.
+    runtimeOnly 'org.postgresql:postgresql'
 }
