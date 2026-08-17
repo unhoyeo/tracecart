@@ -3,7 +3,10 @@ package com.example.tracecart;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
+import org.springframework.scheduling.annotation.EnableAsync;
 
+// @Async가 붙은 메서드를 별도 스레드에서 실행할 수 있도록 비동기 기능을 켭니다.
+@EnableAsync
 // @ConfigurationProperties 클래스를 현재 패키지 아래에서 자동으로 찾아 빈으로 등록합니다.
 @ConfigurationPropertiesScan
 // 자동 설정, 컴포넌트 탐색, Java 설정 기능을 한 번에 활성화하는 애플리케이션 시작점입니다.
