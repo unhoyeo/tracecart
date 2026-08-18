@@ -1,0 +1,37 @@
+# Docker Compose가 함께 관리할 컨테이너 목록입니다.
+services:
+  # dev 프로파일에서 사용할 PostgreSQL 서비스 이름입니다.
+  postgres:
+    # 가벼운 Alpine 기반 PostgreSQL 17 이미지를 사용합니다.
+    image: postgres:17-alpine
+    # 최초 데이터베이스와 계정을 만드는 환경변수입니다.
+    environment:
+      # 자동 생성할 데이터베이스 이름입니다.
+      POSTGRES_DB: tracecart
+      # 개발용 데이터베이스 사용자 이름입니다.
+      POSTGRES_USER: tracecart
+      # 개발용 데이터베이스 비밀번호입니다.
+      POSTGRES_PASSWORD: tracecart
+    # 호스트와 컨테이너의 포트를 연결합니다.
+    ports:
+      # localhost:5432 요청을 PostgreSQL 기본 포트 5432로 전달합니다.
+      - "5432:5432"
+    # 컨테이너를 다시 만들어도 DB 데이터를 유지할 볼륨입니다.
+    volumes:
+      # 이름 있는 볼륨을 PostgreSQL 실제 데이터 폴더에 연결합니다.
+      - tracecart-postgres:/var/lib/postgresql/data
+    # 애플리케이션이 DB 준비 여부를 판단할 수 있는 상태 검사입니다.
+    healthcheck:
+      # tracecart 계정으로 tracecart DB의 연결 가능 여부를 검사합니다.
+      test: ["CMD-SHELL", "pg_isready -U tracecart -d tracecart"]
+      # 5초마다 상태 검사를 실행합니다.
+      interval: 5s
+      # 한 번의 검사가 3초를 넘으면 실패로 처리합니다.
+      timeout: 3s
+      # 연속 10번 실패하면 컨테이너를 unhealthy로 표시합니다.
+      retries: 10
+
+# 서비스에서 참조한 이름 있는 볼륨을 선언합니다.
+volumes:
+  # Docker가 실제 저장 위치를 관리할 PostgreSQL 데이터 볼륨입니다.
+  tracecart-postgres:
