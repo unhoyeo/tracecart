@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Logback 설정 전체의 루트 요소입니다. springProfile 확장을 쓰기 때문에 파일명이 logback-spring.xml입니다. -->
+<configuration>
+    <!-- 색상 변환 규칙과 기본 변수 등 Spring Boot의 Logback 기본값을 불러옵니다. -->
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <!-- 프로파일별 yml의 로그 경로를 Logback 변수 logFile로 가져옵니다. -->
+    <springProperty scope="context" name="logFile"
+                    source="app.logging.file" defaultValue="logs/tracecart.json"/>
+
+    <!-- local과 dev 콘솔에서 사용할 사람이 읽기 좋은 공통 패턴입니다. -->
+    <!-- %X{...}는 현재 스레드 MDC에서 traceId, orderId, userId를 꺼냅니다. -->
+    <property name="LOCAL_PATTERN"
+              value="%clr(%d{HH:mm:ss.SSS}){faint} %clr(%-5level) %clr([%thread]){faint} %clr([traceId=%X{traceId:-} orderId=%X{orderId:-} userId=%X{userId:-}]){cyan} %clr(%logger{36}){blue} - %msg%n%wEx"/>
+
+    <!-- local 프로파일이 활성화된 동안만 이 블록을 적용합니다. -->
+    <springProfile name="local">
+        <!-- 표준 출력에 로그를 쓰는 콘솔 appender입니다. -->
+        <appender name="LOCAL_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <!-- 로그 이벤트를 텍스트 한 줄로 변환하는 encoder입니다. -->
+            <encoder>
+                <!-- 위에서 선언한 사람이 읽기 좋은 패턴을 사용합니다. -->
+                <pattern>${LOCAL_PATTERN}</pattern>
+                <!-- 한글 메시지가 깨지지 않도록 UTF-8로 출력합니다. -->
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+        <!-- 별도 설정이 없는 모든 로거는 INFO 이상을 처리합니다. -->
+        <root level="INFO">
+            <!-- 처리한 로그를 local 콘솔 appender로 전달합니다. -->
+            <appender-ref ref="LOCAL_CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- dev 프로파일에서는 콘솔과 JSON 파일을 동시에 사용합니다. -->
+    <springProfile name="dev">
+        <!-- 개발자가 터미널에서 바로 읽을 텍스트 콘솔 appender입니다. -->
+        <appender name="DEV_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <!-- 콘솔용 텍스트 encoder 설정입니다. -->
+            <encoder>
+                <!-- local과 같은 MDC 포함 패턴을 재사용합니다. -->
+                <pattern>${LOCAL_PATTERN}</pattern>
+                <!-- 한글 로그를 UTF-8로 출력합니다. -->
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+        <!-- 수집 시스템이 읽을 JSON 파일을 크기와 날짜에 따라 나누는 appender입니다. -->
+        <appender name="DEV_JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <!-- 현재 쓰고 있는 활성 로그 파일 경로입니다. -->
+            <file>${logFile}</file>
+            <!-- 날짜와 파일 크기를 모두 기준으로 새 파일을 만드는 정책입니다. -->
+            <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+                <!-- 지난 로그 파일 이름에 날짜와 같은 날의 순번을 넣고 gzip으로 압축합니다. -->
+                <fileNamePattern>logs/tracecart.%d{yyyy-MM-dd}.%i.json.gz</fileNamePattern>
+                <!-- 활성 파일이 10MB가 되면 같은 날에도 다음 순번 파일로 교체합니다. -->
+                <maxFileSize>10MB</maxFileSize>
+                <!-- 지난 로그 파일을 최대 14일 보관합니다. -->
+                <maxHistory>14</maxHistory>
+                <!-- 전체 압축 로그 크기가 1GB를 넘지 않도록 오래된 파일부터 정리합니다. -->
+                <totalSizeCap>1GB</totalSizeCap>
+            </rollingPolicy>
+            <!-- Spring Boot 내장 구조화 로그 encoder로 이벤트를 JSON 한 줄로 바꿉니다. -->
+            <encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
+                <!-- Loki와 Elasticsearch에서 널리 쓰는 Logstash JSON 필드 형식을 선택합니다. -->
+                <format>logstash</format>
+                <!-- JSON 문자열을 UTF-8로 파일에 기록합니다. -->
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+        <!-- dev의 기본 최소 로그 수준은 INFO입니다. yml에서 프로젝트 패키지는 DEBUG로 덮어씁니다. -->
+        <root level="INFO">
+            <!-- 사람이 읽는 콘솔에도 로그를 보냅니다. -->
+            <appender-ref ref="DEV_CONSOLE"/>
+            <!-- 수집 가능한 JSON 파일에도 같은 로그를 보냅니다. -->
+            <appender-ref ref="DEV_JSON_FILE"/>
+        </root>
+    </springProfile>
+
+    <!-- prod 프로파일에서는 파일 대신 컨테이너 표준 출력에 JSON을 씁니다. -->
+    <springProfile name="prod">
+        <!-- 운영 수집기가 읽을 JSON 콘솔 appender입니다. -->
+        <appender name="PROD_JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <!-- 로그 이벤트와 MDC 필드를 구조화된 JSON으로 변환합니다. -->
+            <encoder class="org.springframework.boot.logging.logback.StructuredLogEncoder">
+                <!-- 출력 JSON 형식으로 Logstash를 선택합니다. -->
+                <format>logstash</format>
+                <!-- 표준 출력의 문자 인코딩을 UTF-8로 지정합니다. -->
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+        <!-- 운영에서는 INFO 이상의 로그만 기본 처리합니다. -->
+        <root level="INFO">
+            <!-- 모든 운영 로그를 JSON 표준 출력으로 전달합니다. -->
+            <appender-ref ref="PROD_JSON_CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- local, dev, prod가 아닌 test 같은 프로파일의 안전한 기본 설정입니다. -->
+    <springProfile name="!local &amp; !dev &amp; !prod">
+        <!-- 테스트 실패 등을 터미널에서 볼 수 있는 콘솔 appender입니다. -->
+        <appender name="FALLBACK_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <!-- 테스트도 별도 형식을 만들지 않고 공통 패턴을 사용합니다. -->
+            <encoder>
+                <!-- MDC가 포함된 읽기 쉬운 패턴을 적용합니다. -->
+                <pattern>${LOCAL_PATTERN}</pattern>
+                <!-- 테스트 로그도 UTF-8로 출력합니다. -->
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+        <!-- 테스트 출력이 과도해지지 않도록 WARN 이상만 기본 표시합니다. -->
+        <root level="WARN">
+            <!-- 경고와 오류를 fallback 콘솔로 보냅니다. -->
+            <appender-ref ref="FALLBACK_CONSOLE"/>
+        </root>
+    </springProfile>
+</configuration>

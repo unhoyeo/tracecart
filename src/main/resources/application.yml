@@ -1,0 +1,74 @@
+# 모든 실행 환경이 공통으로 사용하는 Spring 설정 묶음입니다.
+spring:
+  # 애플리케이션의 논리적인 이름을 설정합니다.
+  application:
+    # Actuator와 구조화 로그의 서비스 이름에 tracecart가 사용됩니다.
+    name: tracecart
+  # 실행 시 프로파일을 따로 지정하지 않았을 때의 동작을 설정합니다.
+  profiles:
+    # 개발자가 바로 실행할 수 있도록 기본 환경을 local로 정합니다.
+    default: local
+  # JPA 공통 동작을 설정합니다.
+  jpa:
+    # Controller까지 영속성 컨텍스트를 열어 두지 않고 Service 트랜잭션에서 닫습니다.
+    open-in-view: false
+    # Hibernate 구현체에 직접 전달할 세부 설정입니다.
+    properties:
+      # Hibernate 관련 옵션 묶음입니다.
+      hibernate:
+        # SQL을 출력할 때 읽기 쉬운 줄바꿈과 들여쓰기를 적용합니다.
+        format_sql: true
+
+# 내장 웹 서버의 공통 동작을 설정합니다.
+server:
+  # 종료 신호를 받으면 진행 중 요청을 마무리하는 graceful shutdown을 사용합니다.
+  shutdown: graceful
+
+# 상태 확인과 운영 관찰을 위한 Actuator 설정입니다.
+management:
+  # HTTP로 노출할 Actuator 엔드포인트 설정입니다.
+  endpoints:
+    # 웹 엔드포인트에 관한 설정입니다.
+    web:
+      # 외부에 공개할 엔드포인트 목록을 지정합니다.
+      exposure:
+        # 상태, 정보, 메트릭, 런타임 로그 레벨 확인을 허용합니다.
+        include: health,info,metrics,loggers
+  # 개별 Actuator 엔드포인트의 동작을 설정합니다.
+  endpoint:
+    # /actuator/health 응답 설정입니다.
+    health:
+      # 인증된 요청에만 상세 컴포넌트 상태를 보여 줍니다.
+      show-details: when_authorized
+
+# /actuator/info에서 보여 줄 프로젝트 정보입니다.
+info:
+  # 애플리케이션 정보 묶음입니다.
+  app:
+    # 위에서 정한 spring.application.name을 재사용합니다.
+    name: ${spring.application.name}
+    # 프로젝트의 관찰 가능성 목적을 간단히 설명합니다.
+    description: MDC 기반 주문 추적 데모
+
+# AppProperties record로 읽을 프로젝트 전용 설정입니다.
+app:
+  # 비동기 알림 스레드 풀 설정입니다.
+  async:
+    # 평상시에 유지할 스레드 수입니다.
+    core-pool-size: 4
+    # 작업이 몰릴 때 늘어날 수 있는 최대 스레드 수입니다.
+    max-pool-size: 8
+    # 모든 스레드가 바쁠 때 대기시킬 작업 수입니다.
+    queue-capacity: 100
+  # 결제 구현체가 사용할 설정입니다.
+  payment:
+    # Fake 결제의 기본 지연 시간을 50ms로 설정합니다.
+    fake-delay-ms: 50
+    # TIMEOUT 데모는 정상 요청보다 느린 300ms 뒤 실패하도록 설정합니다.
+    fake-timeout-delay-ms: 300
+    # 운영 외부 결제 클라이언트의 기본 주소이며 prod에서 환경변수로 덮어씁니다.
+    base-url: http://localhost:8090
+  # Logback에서 읽을 프로젝트 전용 로그 설정입니다.
+  logging:
+    # dev 프로파일의 JSON 로그 파일 위치입니다.
+    file: logs/tracecart.json

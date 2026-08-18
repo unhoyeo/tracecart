@@ -1,0 +1,64 @@
+# prod 프로파일은 환경변수가 없으면 시작하지 않도록 운영 값을 필수로 받습니다.
+spring:
+  # 운영 RestClient가 외부 장애로 요청 스레드를 무기한 점유하지 않도록 제한 시간을 둡니다.
+  http:
+    clients:
+      # TCP 연결 수립은 기본 2초까지만 기다립니다.
+      connect-timeout: ${PAYMENT_CONNECT_TIMEOUT:2s}
+      # 연결 후 응답 본문은 기본 3초까지만 기다립니다.
+      read-timeout: ${PAYMENT_READ_TIMEOUT:3s}
+  # 운영 PostgreSQL 연결 설정입니다.
+  datasource:
+    # 운영 데이터베이스 JDBC 주소를 환경변수에서 읽습니다.
+    url: ${DB_URL}
+    # 운영 데이터베이스 계정을 환경변수에서 읽습니다.
+    username: ${DB_USERNAME}
+    # 운영 데이터베이스 비밀번호를 환경변수에서 읽습니다.
+    password: ${DB_PASSWORD}
+    # HikariCP 데이터베이스 연결 풀 설정입니다.
+    hikari:
+      # 환경변수가 없으면 최대 연결을 10개로 제한합니다.
+      maximum-pool-size: ${DB_POOL_SIZE:10}
+  # 운영 JPA 설정입니다.
+  jpa:
+    # Hibernate의 스키마 관리 동작입니다.
+    hibernate:
+      # 엔티티와 DB 스키마가 다르면 시작을 실패시키고 자동 변경은 하지 않습니다.
+      ddl-auto: validate
+
+# 운영 로그는 필요한 정보만 남깁니다.
+logging:
+  # 로거별 최소 수준입니다.
+  level:
+    # 외부 라이브러리를 포함한 기본 수준은 INFO입니다.
+    root: INFO
+    # 애플리케이션 코드도 INFO 이상만 출력합니다.
+    com.example.tracecart: INFO
+    # SQL은 경고가 있을 때만 출력해 로그 양과 정보 노출을 줄입니다.
+    org.hibernate.SQL: WARN
+  # Spring Boot 구조화 JSON 로그의 필드를 확장합니다.
+  structured:
+    # JSON 출력 관련 설정입니다.
+    json:
+      # 모든 JSON 로그에 고정 필드를 추가합니다.
+      add:
+        # 수집 시스템에서 운영 로그를 구분할 environment 필드입니다.
+        environment: prod
+
+# 운영 환경의 Actuator 공개 범위를 더 좁힙니다.
+management:
+  # HTTP 엔드포인트 설정입니다.
+  endpoints:
+    # 웹 공개 설정입니다.
+    web:
+      # 공개할 엔드포인트 목록입니다.
+      exposure:
+        # 런타임 로그 레벨 변경 기능을 빼고 상태, 정보, 메트릭만 노출합니다.
+        include: health,info,metrics
+
+# 운영 전용 애플리케이션 설정입니다.
+app:
+  # 실제 결제 클라이언트 설정입니다.
+  payment:
+    # 외부 결제 서버 주소를 필수 환경변수로 받습니다.
+    base-url: ${PAYMENT_BASE_URL}

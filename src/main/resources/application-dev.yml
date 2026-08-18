@@ -1,0 +1,32 @@
+# dev 프로파일에서 PostgreSQL과 상세 로그를 사용하는 설정입니다.
+spring:
+  # 개발용 PostgreSQL 연결 설정입니다.
+  datasource:
+    # DB_URL이 있으면 사용하고 없으면 로컬 Docker PostgreSQL에 연결합니다.
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/tracecart}
+    # 환경변수가 없을 때 사용할 개발용 사용자 이름입니다.
+    username: ${DB_USERNAME:tracecart}
+    # 환경변수가 없을 때 사용할 개발용 비밀번호입니다.
+    password: ${DB_PASSWORD:tracecart}
+  # 개발용 JPA 설정입니다.
+  jpa:
+    # Hibernate 스키마 관리 전략입니다.
+    hibernate:
+      # 엔티티 변경에 맞춰 개발 DB 스키마를 자동 갱신합니다.
+      ddl-auto: update
+
+# 개발 환경에서 더 자세히 볼 로그 수준입니다.
+logging:
+  # 패키지별 최소 로그 레벨입니다.
+  level:
+    # 애플리케이션 코드는 DEBUG까지 출력합니다.
+    com.example.tracecart: DEBUG
+    # 실제 실행 SQL도 DEBUG로 출력합니다.
+    org.hibernate.SQL: DEBUG
+
+# Logback이 읽을 개발 환경 전용 값입니다.
+app:
+  # 로그 파일 설정 묶음입니다.
+  logging:
+    # LOG_FILE 환경변수가 없으면 프로젝트 logs 폴더에 JSON을 저장합니다.
+    file: ${LOG_FILE:logs/tracecart.json}
