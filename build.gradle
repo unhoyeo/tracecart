@@ -28,7 +28,7 @@ repositories {
     mavenCentral()
 }
 
-// 컴파일과 실행에 필요한 외부 라이브러리를 선언합니다.
+// 컴파일, 실행, 테스트에 필요한 외부 라이브러리를 선언합니다.
 dependencies {
     // Spring Boot가 검증한 호환 버전을 모든 하위 라이브러리에 적용합니다.
     implementation platform(org.springframework.boot.gradle.plugin.SpringBootPlugin.BOM_COORDINATES)
@@ -48,4 +48,15 @@ dependencies {
     runtimeOnly 'com.h2database:h2'
     // dev와 prod 실행 때만 필요한 PostgreSQL JDBC 드라이버입니다.
     runtimeOnly 'org.postgresql:postgresql'
+
+    // JUnit, AssertJ, Spring Test, MockMvc 등 테스트 도구 모음입니다.
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    // Gradle이 JUnit Platform 테스트 엔진을 실행할 때 필요한 런처입니다.
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+// Gradle의 test 작업 동작을 설정합니다.
+tasks.named('test') {
+    // JUnit 5 기반 Platform으로 모든 테스트를 검색하고 실행합니다.
+    useJUnitPlatform()
 }

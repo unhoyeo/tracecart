@@ -1,0 +1,34 @@
+# 자동 테스트에서만 적용되는 격리된 설정입니다.
+spring:
+  # 테스트 데이터베이스 연결 설정입니다.
+  datasource:
+    # 각 테스트 컨텍스트가 사용할 메모리 H2 데이터베이스입니다.
+    url: jdbc:h2:mem:tracecart-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    # H2 기본 계정입니다.
+    username: sa
+    # 테스트 DB에는 비밀번호를 사용하지 않습니다.
+    password:
+  # 테스트용 JPA 설정입니다.
+  jpa:
+    # Hibernate 스키마 관리 설정입니다.
+    hibernate:
+      # 테스트 시작 시 테이블을 만들고 종료할 때 제거해 서로 격리합니다.
+      ddl-auto: create-drop
+
+# 테스트 실행 중 출력할 로그 수준입니다.
+logging:
+  # 로거별 최소 수준입니다.
+  level:
+    # 외부 라이브러리는 WARN 이상만 보여 테스트 출력을 줄입니다.
+    root: WARN
+    # 프로젝트의 핵심 로그는 INFO부터 확인할 수 있습니다.
+    com.example.tracecart: INFO
+
+# 테스트가 느려지지 않도록 바꾸는 애플리케이션 설정입니다.
+app:
+  # Fake 결제 설정입니다.
+  payment:
+    # 성공과 일반 실패 시나리오의 인위적 대기를 제거합니다.
+    fake-delay-ms: 0
+    # 타임아웃 분기는 유지하되 테스트 실행을 느리게 하는 대기는 제거합니다.
+    fake-timeout-delay-ms: 0
