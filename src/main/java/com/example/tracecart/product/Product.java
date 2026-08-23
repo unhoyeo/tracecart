@@ -7,6 +7,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import org.springframework.http.HttpStatus;
 
@@ -27,6 +28,10 @@ public class Product {
 
     @Column(nullable = false)
     private int stock;
+
+    // 동시에 같은 상품을 수정했을 때 재고 덮어쓰기를 감지하는 낙관적 잠금 버전입니다.
+    @Version
+    private long version;
 
     // JPA가 데이터베이스 값을 채워 객체를 만들 때 사용하는 기본 생성자입니다.
     protected Product() {

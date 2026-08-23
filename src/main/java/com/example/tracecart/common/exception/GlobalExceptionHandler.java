@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -43,6 +44,17 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiError> handleUnreadableMessage(HttpMessageNotReadableException exception) {
         log.warn("HTTP request body could not be read: {}", exception.getMessage());
         return error(HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", "요청 본문 형식이 올바르지 않습니다.");
+    }
+
+    // 같은 상품 재고를 동시에 수정해 낙관적 잠금 충돌이 발생하면 재시도 가능한 409로 변환합니다.
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<ApiError> handleOptimisticLock(ObjectOptimisticLockingFailureException exception) {
+        log.warn("Concurrent stock update rejected", exception);
+        return error(
+                HttpStatus.CONFLICT,
+                "CONCURRENT_STOCK_UPDATE",
+                "다른 주문이 재고를 먼저 변경했습니다. 상품 정보를 확인한 뒤 다시 시도해 주세요."
+        );
     }
 
     // 위에서 별도로 처리한 예상 가능한 예외가 아닌 모든 예외를 마지막 안전망에서 처리합니다.
