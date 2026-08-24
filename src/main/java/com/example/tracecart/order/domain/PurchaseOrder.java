@@ -10,33 +10,47 @@ import jakarta.persistence.Id;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
+import jakarta.persistence.Version;
 import java.math.BigDecimal;
 import java.time.Instant;
 
 @Entity
-@Table(name = "purchase_orders")
+@Table(
+        name = "purchase_orders",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_purchase_orders_idempotency_key",
+                columnNames = "idempotency_key"
+        )
+)
 public class PurchaseOrder {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    @Column(nullable = false, length = 64)
+    // 같은 요청을 재전송해도 주문과 결제가 중복되지 않게 하는 클라이언트 제공 키입니다.
+    @Column(name = "idempotency_key", nullable = false, length = 64, updatable = false)
+    private String idempotencyKey;
+
+    @Column(nullable = false, length = 64, updatable = false)
     private String userId;
 
-    // 현재 데모 주문은 하나의 상품만 가지므로 상품 ID를 직접 저장합니다.
-    @Column(nullable = false)
+    @Column(nullable = false, updatable = false)
     private Long productId;
 
-    @Column(nullable = false)
+    @Column(nullable = false, updatable = false)
     private int quantity;
 
-    @Column(nullable = false, precision = 19, scale = 2)
+    @Column(nullable = false, precision = 19, scale = 2, updatable = false)
     private BigDecimal totalPrice;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private OrderStatus status;
+
+    @Column(length = 100)
+    private String transactionId;
 
     @Column(length = 300)
     private String failureReason;
@@ -47,91 +61,109 @@ public class PurchaseOrder {
     @Column(nullable = false)
     private Instant updatedAt;
 
-    // JPA가 조회 결과로 엔티티를 생성할 때 사용하는 기본 생성자입니다.
+    // 동시에 같은 주문 결과를 확정하는 갱신도 감지할 수 있도록 버전을 둡니다.
+    @Version
+    private long version;
+
     protected PurchaseOrder() {
     }
 
-    // 새 주문을 만들 때 필요한 업무 값만 받는 생성자입니다.
-    public PurchaseOrder(String userId, Long productId, int quantity, BigDecimal totalPrice) {
-        // Controller를 거치지 않는 호출에서도 빈 사용자 ID가 저장되지 않도록 도메인이 방어합니다.
-        if (userId == null || userId.isBlank()) {
-            throw new IllegalArgumentException("사용자 ID는 비어 있을 수 없습니다.");
+    public PurchaseOrder(
+            String idempotencyKey,
+            OrderUserId userId,
+            Long productId,
+            OrderQuantity quantity,
+            BigDecimal totalPrice
+    ) {
+        if (idempotencyKey == null || !idempotencyKey.matches("[A-Za-z0-9._-]{8,64}")) {
+            throw new InvalidOrderException("멱등성 키는 영문, 숫자, 점, 밑줄, 하이픈으로 된 8~64자여야 합니다.");
         }
-        // 데이터베이스에 존재할 수 없는 0 이하 상품 ID를 주문이 보유하지 못하게 합니다.
         if (productId == null || productId <= 0) {
-            throw new IllegalArgumentException("상품 ID는 양수여야 합니다.");
+            throw new InvalidOrderException("상품 ID는 양수여야 합니다.");
         }
-        // 음수 주문이 재고를 늘리거나 0개 주문이 생기는 것을 생성 시점에 차단합니다.
-        if (quantity <= 0) {
-            throw new IllegalArgumentException("주문 수량은 1 이상이어야 합니다.");
+        if (totalPrice == null || totalPrice.signum() <= 0 || totalPrice.scale() > 2) {
+            throw new InvalidOrderException("주문 금액은 소수 둘째 자리까지의 양수여야 합니다.");
         }
-        // 금액이 없거나 0 이하인 비정상 주문은 결제 단계로 넘어가지 못하게 합니다.
-        if (totalPrice == null || totalPrice.signum() <= 0) {
-            throw new IllegalArgumentException("주문 금액은 0보다 커야 합니다.");
-        }
-        this.userId = userId;
+        this.idempotencyKey = idempotencyKey;
+        this.userId = userId.value();
         this.productId = productId;
-        this.quantity = quantity;
+        this.quantity = quantity.value();
         this.totalPrice = totalPrice;
-        // 결제 전 새 주문의 초기 상태는 항상 PENDING입니다.
         this.status = OrderStatus.PENDING;
     }
 
-    // 결제 승인을 엔티티 상태에 반영하는 도메인 메서드입니다.
-    public void markPaid() {
-        this.status = OrderStatus.PAID;
-        // 이전 실패 정보가 남지 않도록 실패 사유를 비웁니다.
-        this.failureReason = null;
+    public boolean hasSameRequest(
+            OrderUserId requestedUserId,
+            Long requestedProductId,
+            OrderQuantity requestedQuantity
+    ) {
+        return userId.equals(requestedUserId.value())
+                && productId.equals(requestedProductId)
+                && quantity == requestedQuantity.value();
     }
 
-    // 결제 실패를 상태와 이유 두 값으로 함께 반영합니다.
-    public void markPaymentFailed(String reason) {
-        this.status = OrderStatus.PAYMENT_FAILED;
-        this.failureReason = reason;
+    public void startPayment() {
+        requireStatus(OrderStatus.PENDING);
+        status = OrderStatus.PAYMENT_PROCESSING;
     }
 
-    // JPA가 INSERT를 실행하기 직전에 자동으로 호출합니다.
+    public void markPaid(String approvedTransactionId) {
+        if (approvedTransactionId == null || approvedTransactionId.isBlank() || approvedTransactionId.length() > 100) {
+            throw new InvalidOrderException("유효한 결제 거래 ID가 필요합니다.");
+        }
+        if (status != OrderStatus.PAYMENT_PROCESSING && status != OrderStatus.PAYMENT_UNKNOWN) {
+            throw new InvalidOrderException("결제 처리 중이거나 결과 확인 중인 주문만 결제 완료할 수 있습니다.");
+        }
+        status = OrderStatus.PAID;
+        transactionId = approvedTransactionId;
+        failureReason = null;
+    }
+
+    public void markPaymentDeclined(String reason) {
+        requireStatus(OrderStatus.PAYMENT_PROCESSING);
+        status = OrderStatus.PAYMENT_DECLINED;
+        failureReason = normalizedReason(reason);
+    }
+
+    public void markPaymentUnknown(String reason) {
+        requireStatus(OrderStatus.PAYMENT_PROCESSING);
+        status = OrderStatus.PAYMENT_UNKNOWN;
+        failureReason = normalizedReason(reason);
+    }
+
+    private void requireStatus(OrderStatus expected) {
+        if (status != expected) {
+            throw new InvalidOrderException(expected + " 상태의 주문만 이 작업을 수행할 수 있습니다. 현재 상태: " + status);
+        }
+    }
+
+    private String normalizedReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            throw new InvalidOrderException("결제 미완료 사유는 비어 있을 수 없습니다.");
+        }
+        return reason.length() <= 300 ? reason : reason.substring(0, 300);
+    }
+
     @PrePersist
     void onCreate() {
         createdAt = Instant.now();
         updatedAt = createdAt;
     }
 
-    // JPA가 UPDATE를 실행하기 직전에 자동으로 호출합니다.
     @PreUpdate
     void onUpdate() {
         updatedAt = Instant.now();
     }
 
-    public Long getId() {
-        return id;
-    }
-
-    public String getUserId() {
-        return userId;
-    }
-
-    public Long getProductId() {
-        return productId;
-    }
-
-    public int getQuantity() {
-        return quantity;
-    }
-
-    public BigDecimal getTotalPrice() {
-        return totalPrice;
-    }
-
-    public OrderStatus getStatus() {
-        return status;
-    }
-
-    public String getFailureReason() {
-        return failureReason;
-    }
-
-    public Instant getCreatedAt() {
-        return createdAt;
-    }
+    public Long getId() { return id; }
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public String getUserId() { return userId; }
+    public Long getProductId() { return productId; }
+    public int getQuantity() { return quantity; }
+    public BigDecimal getTotalPrice() { return totalPrice; }
+    public OrderStatus getStatus() { return status; }
+    public String getTransactionId() { return transactionId; }
+    public String getFailureReason() { return failureReason; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
 }

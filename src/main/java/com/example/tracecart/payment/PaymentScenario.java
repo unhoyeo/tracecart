@@ -6,6 +6,6 @@ public enum PaymentScenario {
     SUCCESS,
     // 결제 거절과 재고 복원 흐름을 실행합니다.
     FAILURE,
-    // 지연 뒤 타임아웃 실패와 재고 복원 흐름을 실행합니다.
+    // 지연 뒤 결과 미확정 상태와 재고 예약 유지 흐름을 실행합니다.
     TIMEOUT
 }

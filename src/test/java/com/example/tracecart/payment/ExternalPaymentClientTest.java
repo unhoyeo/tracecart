@@ -3,18 +3,24 @@ package com.example.tracecart.payment;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.example.tracecart.common.config.AppProperties;
+import com.example.tracecart.common.logging.TraceIdFilter;
 import java.net.SocketTimeoutException;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.slf4j.MDC;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
@@ -35,10 +41,18 @@ class ExternalPaymentClientTest {
         paymentClient = new ExternalPaymentClient(builder, properties);
     }
 
+    @AfterEach
+    void clearMdc() {
+        MDC.clear();
+    }
+
     @Test
     void returnsTransactionIdForSuccessfulProductionResponse() {
+        MDC.put(TraceIdFilter.TRACE_ID, "external-trace-0001");
         server.expect(requestTo("https://payment.example/payments"))
                 .andExpect(method(HttpMethod.POST))
+                .andExpect(header("Idempotency-Key", "idem-external-0001"))
+                .andExpect(header(TraceIdFilter.TRACE_HEADER, "external-trace-0001"))
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("""
                         {
@@ -64,8 +78,8 @@ class ExternalPaymentClientTest {
                 .andRespond(withServerError());
 
         assertThatThrownBy(() -> paymentClient.pay(command()))
-                .isInstanceOf(PaymentException.class)
-                .hasMessage("외부 결제 요청에 실패했습니다.");
+                .isInstanceOfSatisfying(PaymentException.class, exception ->
+                        assertThat(exception.type()).isEqualTo(PaymentFailureType.UNAVAILABLE));
         server.verify();
     }
 
@@ -77,8 +91,8 @@ class ExternalPaymentClientTest {
                 });
 
         assertThatThrownBy(() -> paymentClient.pay(command()))
-                .isInstanceOf(PaymentException.class)
-                .hasMessage("외부 결제 요청에 실패했습니다.");
+                .isInstanceOfSatisfying(PaymentException.class, exception ->
+                        assertThat(exception.type()).isEqualTo(PaymentFailureType.TIMEOUT));
         server.verify();
     }
 
@@ -88,8 +102,8 @@ class ExternalPaymentClientTest {
                 .andRespond(withSuccess("", MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> paymentClient.pay(command()))
-                .isInstanceOf(PaymentException.class)
-                .hasMessage("결제 서버가 유효하지 않은 응답을 반환했습니다.");
+                .isInstanceOfSatisfying(PaymentException.class, exception ->
+                        assertThat(exception.type()).isEqualTo(PaymentFailureType.INVALID_RESPONSE));
         server.verify();
     }
 
@@ -99,8 +113,8 @@ class ExternalPaymentClientTest {
                 .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> paymentClient.pay(command()))
-                .isInstanceOf(PaymentException.class)
-                .hasMessage("결제 서버가 유효하지 않은 응답을 반환했습니다.");
+                .isInstanceOfSatisfying(PaymentException.class, exception ->
+                        assertThat(exception.type()).isEqualTo(PaymentFailureType.INVALID_RESPONSE));
         server.verify();
     }
 
@@ -110,8 +124,8 @@ class ExternalPaymentClientTest {
                 .andRespond(withSuccess("{\"transactionId\":\"   \"}", MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> paymentClient.pay(command()))
-                .isInstanceOf(PaymentException.class)
-                .hasMessage("결제 서버가 유효하지 않은 응답을 반환했습니다.");
+                .isInstanceOfSatisfying(PaymentException.class, exception ->
+                        assertThat(exception.type()).isEqualTo(PaymentFailureType.INVALID_RESPONSE));
         server.verify();
     }
 
@@ -121,8 +135,19 @@ class ExternalPaymentClientTest {
                 .andRespond(withSuccess("{not-json", MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> paymentClient.pay(command()))
-                .isInstanceOf(PaymentException.class)
-                .hasMessage("외부 결제 요청에 실패했습니다.");
+                .isInstanceOfSatisfying(PaymentException.class, exception ->
+                        assertThat(exception.type()).isEqualTo(PaymentFailureType.INVALID_RESPONSE));
+        server.verify();
+    }
+
+    @Test
+    void convertsExplicitPaymentRejectionToDeclinedType() {
+        server.expect(requestTo("https://payment.example/payments"))
+                .andRespond(withStatus(HttpStatus.PAYMENT_REQUIRED));
+
+        assertThatThrownBy(() -> paymentClient.pay(command()))
+                .isInstanceOfSatisfying(PaymentException.class, exception ->
+                        assertThat(exception.type()).isEqualTo(PaymentFailureType.DECLINED));
         server.verify();
     }
 
@@ -131,6 +156,7 @@ class ExternalPaymentClientTest {
                 100L,
                 "user-1",
                 new BigDecimal("15000.00"),
+                "idem-external-0001",
                 PaymentScenario.SUCCESS
         );
     }

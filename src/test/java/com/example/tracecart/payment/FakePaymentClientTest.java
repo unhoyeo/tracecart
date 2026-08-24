@@ -32,15 +32,19 @@ class FakePaymentClientTest {
     @Test
     void throwsRejectedExceptionForFailureScenario() {
         assertThatThrownBy(() -> paymentClient.pay(command(PaymentScenario.FAILURE)))
-                .isInstanceOf(PaymentException.class)
-                .hasMessageContaining("거절");
+                .isInstanceOfSatisfying(PaymentException.class, exception -> {
+                    assertThat(exception.type()).isEqualTo(PaymentFailureType.DECLINED);
+                    assertThat(exception.getMessage()).contains("거절");
+                });
     }
 
     @Test
     void throwsTimeoutExceptionForTimeoutScenario() {
         assertThatThrownBy(() -> paymentClient.pay(command(PaymentScenario.TIMEOUT)))
-                .isInstanceOf(PaymentException.class)
-                .hasMessageContaining("초과");
+                .isInstanceOfSatisfying(PaymentException.class, exception -> {
+                    assertThat(exception.type()).isEqualTo(PaymentFailureType.TIMEOUT);
+                    assertThat(exception.getMessage()).contains("확인");
+                });
     }
 
     @Test
@@ -61,6 +65,12 @@ class FakePaymentClientTest {
     }
 
     private PaymentCommand command(PaymentScenario scenario) {
-        return new PaymentCommand(100L, "user-1", new BigDecimal("10000.00"), scenario);
+        return new PaymentCommand(
+                100L,
+                "user-1",
+                new BigDecimal("10000.00"),
+                "idem-fake-0001",
+                scenario
+        );
     }
 }

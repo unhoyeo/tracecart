@@ -20,6 +20,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.support.TransactionTemplate;
+import com.example.tracecart.order.domain.PurchaseOrderRepository;
 
 // 두 트랜잭션이 같은 버전의 재고를 수정할 때 한쪽이 낙관적 잠금으로 거절되는지 검증합니다.
 @SpringBootTest
@@ -27,12 +28,14 @@ import org.springframework.transaction.support.TransactionTemplate;
 class ProductOptimisticLockIntegrationTest {
 
     @Autowired ProductRepository productRepository;
+    @Autowired PurchaseOrderRepository orderRepository;
     @Autowired TransactionTemplate transactionTemplate;
 
     private Long productId;
 
     @BeforeEach
     void setUp() {
+        orderRepository.deleteAll();
         productRepository.deleteAll();
         productId = productRepository.saveAndFlush(
                 new Product("Last Keyboard", new BigDecimal("10000.00"), 1)

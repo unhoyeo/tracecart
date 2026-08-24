@@ -14,6 +14,7 @@ class ExternalPaymentRequestTest {
                 100L,
                 "user-1",
                 new BigDecimal("15000.00"),
+                "idem-external-0001",
                 PaymentScenario.TIMEOUT
         );
 

@@ -10,6 +10,8 @@ public record PaymentCommand(
         String userId,
         // 승인할 총 주문 금액입니다.
         BigDecimal amount,
+        // 우리 시스템과 결제사 양쪽에서 중복 결제를 막을 안정적인 키입니다.
+        String idempotencyKey,
         // Fake 구현에서 재현할 결제 결과입니다.
         PaymentScenario scenario
 ) {

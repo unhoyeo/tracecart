@@ -3,10 +3,8 @@ package com.example.tracecart.product;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-import com.example.tracecart.common.exception.BusinessException;
 import java.math.BigDecimal;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.HttpStatus;
 
 // Spring 컨테이너와 데이터베이스 없이 Product 도메인 규칙만 검증하는 순수 단위 테스트입니다.
 class ProductTest {
@@ -25,10 +23,8 @@ class ProductTest {
         Product product = new Product("Keyboard", new BigDecimal("10000.00"), 1);
 
         assertThatThrownBy(() -> product.decreaseStock(2))
-                .isInstanceOfSatisfying(BusinessException.class, exception -> {
-                    assertThat(exception.status()).isEqualTo(HttpStatus.CONFLICT);
-                    assertThat(exception.code()).isEqualTo("INSUFFICIENT_STOCK");
-                });
+                .isInstanceOf(InsufficientStockException.class)
+                .hasMessageContaining("재고");
         assertThat(product.getStock()).isEqualTo(1);
     }
 
@@ -47,12 +43,9 @@ class ProductTest {
         Product product = new Product("Keyboard", new BigDecimal("10000.00"), 5);
 
         assertThatThrownBy(() -> product.decreaseStock(0))
-                .isInstanceOfSatisfying(BusinessException.class, exception -> {
-                    assertThat(exception.status()).isEqualTo(HttpStatus.BAD_REQUEST);
-                    assertThat(exception.code()).isEqualTo("INVALID_QUANTITY");
-                });
+                .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> product.decreaseStock(-1))
-                .isInstanceOf(BusinessException.class);
+                .isInstanceOf(IllegalArgumentException.class);
         assertThat(product.getStock()).isEqualTo(5);
     }
 
@@ -64,6 +57,12 @@ class ProductTest {
         assertThatThrownBy(() -> new Product("Keyboard", BigDecimal.ZERO, 1))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("가격");
+        assertThatThrownBy(() -> new Product("Keyboard", new BigDecimal("1.001"), 1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("가격");
+        assertThatThrownBy(() -> new Product("K".repeat(101), new BigDecimal("10000.00"), 1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("이름");
         assertThatThrownBy(() -> new Product("Keyboard", new BigDecimal("10000.00"), -1))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("재고");

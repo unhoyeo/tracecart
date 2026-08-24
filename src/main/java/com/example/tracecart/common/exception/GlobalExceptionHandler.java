@@ -2,6 +2,10 @@ package com.example.tracecart.common.exception;
 
 import java.time.Instant;
 import java.util.stream.Collectors;
+import com.example.tracecart.order.application.IdempotencyConflictException;
+import com.example.tracecart.order.domain.InvalidOrderException;
+import com.example.tracecart.product.InsufficientStockException;
+import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -11,6 +15,7 @@ import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 // 모든 REST Controller에서 던진 예외를 한 장소에서 JSON 응답으로 변환합니다.
@@ -37,6 +42,43 @@ public class GlobalExceptionHandler {
                 // 오류가 여러 개면 쉼표로 연결합니다.
                 .collect(Collectors.joining(", "));
         return error(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", message);
+    }
+
+    // HTTP 밖에서도 재사용되는 주문 값 객체의 검증 실패를 동일한 400 계약으로 변환합니다.
+    @ExceptionHandler(InvalidOrderException.class)
+    public ResponseEntity<ApiError> handleInvalidOrder(InvalidOrderException exception) {
+        return error(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", exception.getMessage());
+    }
+
+    // 필수 멱등성 헤더가 빠진 요청에는 무엇이 필요한지 명확한 오류 코드를 반환합니다.
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ApiError> handleMissingHeader(MissingRequestHeaderException exception) {
+        if ("Idempotency-Key".equalsIgnoreCase(exception.getHeaderName())) {
+            return error(
+                    HttpStatus.BAD_REQUEST,
+                    "MISSING_IDEMPOTENCY_KEY",
+                    "Idempotency-Key 헤더가 필요합니다."
+            );
+        }
+        return error(HttpStatus.BAD_REQUEST, "MISSING_HEADER", "필수 요청 헤더가 없습니다.");
+    }
+
+    // 메서드 파라미터 제약조건 검증도 요청 오류로 일관되게 처리합니다.
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ApiError> handleConstraintViolation(ConstraintViolationException exception) {
+        return error(HttpStatus.BAD_REQUEST, "INVALID_REQUEST", "요청 값이 올바르지 않습니다.");
+    }
+
+    // 재고 부족 도메인 예외의 HTTP 표현은 도메인 밖인 이 계층에서 결정합니다.
+    @ExceptionHandler(InsufficientStockException.class)
+    public ResponseEntity<ApiError> handleInsufficientStock(InsufficientStockException exception) {
+        return error(HttpStatus.CONFLICT, "INSUFFICIENT_STOCK", exception.getMessage());
+    }
+
+    // 한 멱등성 키로 서로 다른 주문을 만들려는 요청은 기존 자원과 충돌합니다.
+    @ExceptionHandler(IdempotencyConflictException.class)
+    public ResponseEntity<ApiError> handleIdempotencyConflict(IdempotencyConflictException exception) {
+        return error(HttpStatus.CONFLICT, "IDEMPOTENCY_KEY_REUSED", exception.getMessage());
     }
 
     // JSON 문법 오류, 알 수 없는 enum 값, 잘못된 타입은 서버 오류가 아니라 400 요청 오류입니다.

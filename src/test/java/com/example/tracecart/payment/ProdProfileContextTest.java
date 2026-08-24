@@ -28,6 +28,7 @@ class ProdProfileContextTest {
     @Autowired PaymentClient paymentClient;
     @Autowired RestClient.Builder restClientBuilder;
     @Autowired HttpClientsProperties httpClientsProperties;
+    @Autowired PaymentScenarioResolver paymentScenarioResolver;
 
     @Test
     void prodContextStartsWithExactlyOneExternalPaymentClient() {
@@ -36,6 +37,7 @@ class ProdProfileContextTest {
         assertThat(clients).hasSize(1);
         assertThat(paymentClient).isInstanceOf(ExternalPaymentClient.class);
         assertThat(context.getBeansOfType(FakePaymentClient.class)).isEmpty();
+        assertThat(paymentScenarioResolver).isInstanceOf(ProductionPaymentScenarioResolver.class);
         assertThat(restClientBuilder).isNotNull();
     }
 

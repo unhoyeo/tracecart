@@ -5,9 +5,12 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 
-import com.example.tracecart.order.api.CreateOrderRequest;
-import com.example.tracecart.order.api.OrderResponse;
+import com.example.tracecart.order.application.CreateOrderCommand;
+import com.example.tracecart.order.application.CreateOrderResult;
 import com.example.tracecart.order.application.OrderService;
+import com.example.tracecart.order.domain.IdempotencyKey;
+import com.example.tracecart.order.domain.OrderQuantity;
+import com.example.tracecart.order.domain.OrderUserId;
 import com.example.tracecart.order.domain.PurchaseOrderRepository;
 import com.example.tracecart.payment.PaymentScenario;
 import com.example.tracecart.product.Product;
@@ -19,9 +22,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
-import org.springframework.transaction.support.TransactionTemplate;
 
-// 실제 트랜잭션과 비동기 리스너를 사용해 알림이 커밋 뒤에만 실행되는지 검증합니다.
+// 결제 완료 트랜잭션이 커밋된 뒤에만 비동기 알림이 실행되는지 검증합니다.
 @SpringBootTest
 @ActiveProfiles("test")
 class OrderPaidAfterCommitIntegrationTest {
@@ -29,9 +31,7 @@ class OrderPaidAfterCommitIntegrationTest {
     @Autowired OrderService orderService;
     @Autowired ProductRepository productRepository;
     @Autowired PurchaseOrderRepository orderRepository;
-    @Autowired TransactionTemplate transactionTemplate;
 
-    // 실제 로그 알림 대신 호출 시점과 횟수를 관찰할 mock 빈으로 교체합니다.
     @MockitoBean NotificationService notificationService;
 
     private Long productId;
@@ -42,30 +42,41 @@ class OrderPaidAfterCommitIntegrationTest {
         orderRepository.deleteAll();
         productRepository.deleteAll();
         productId = productRepository.save(
-                new Product("Commit Keyboard", new BigDecimal("10000.00"), 2)
+                new Product("Commit Keyboard", new BigDecimal("10000.00"), 3)
         ).getId();
     }
 
     @Test
-    void sendsNotificationAfterTransactionCommits() {
-        OrderResponse response = transactionTemplate.execute(status -> orderService.create(request()));
+    void sendsNotificationAfterPaidStateCommits() {
+        CreateOrderResult result = orderService.create(request("idem-notify-paid-0001", PaymentScenario.SUCCESS));
 
         verify(notificationService, timeout(2_000))
-                .sendOrderCompleted(response.id(), "commit-user");
+                .sendOrderCompleted(result.order().id(), "commit-user");
     }
 
     @Test
-    void doesNotSendNotificationWhenTransactionRollsBack() {
-        transactionTemplate.executeWithoutResult(status -> {
-            orderService.create(request());
-            status.setRollbackOnly();
-        });
+    void doesNotSendNotificationForDeclinedPayment() {
+        orderService.create(request("idem-notify-decline-0001", PaymentScenario.FAILURE));
 
         verify(notificationService, after(400).never())
                 .sendOrderCompleted(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
     }
 
-    private CreateOrderRequest request() {
-        return new CreateOrderRequest("commit-user", productId, 1, PaymentScenario.SUCCESS);
+    @Test
+    void doesNotSendNotificationForUnknownPayment() {
+        orderService.create(request("idem-notify-timeout-0001", PaymentScenario.TIMEOUT));
+
+        verify(notificationService, after(400).never())
+                .sendOrderCompleted(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    private CreateOrderCommand request(String key, PaymentScenario scenario) {
+        return new CreateOrderCommand(
+                new IdempotencyKey(key),
+                new OrderUserId("commit-user"),
+                productId,
+                new OrderQuantity(1),
+                scenario
+        );
     }
 }

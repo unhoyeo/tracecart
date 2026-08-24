@@ -45,6 +45,13 @@ class PaymentClientProfileTest {
         assertProfileSelects("prod", ExternalPaymentClient.class);
     }
 
+    @Test
+    void unknownProfileDoesNotSilentlyUseFakePaymentClient() {
+        contextRunner
+                .withPropertyValues("spring.profiles.active=production")
+                .run(context -> assertThat(context).doesNotHaveBean(PaymentClient.class));
+    }
+
     private void assertProfileSelects(String profile, Class<? extends PaymentClient> expectedType) {
         contextRunner
                 .withPropertyValues("spring.profiles.active=" + profile)

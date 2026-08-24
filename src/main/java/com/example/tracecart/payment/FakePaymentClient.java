@@ -9,7 +9,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 // prod가 아닐 때만 활성화되어 로컬 개발과 테스트에서 외부 결제를 대체합니다.
-@Profile("!prod")
+@Profile("local | dev | test")
 public class FakePaymentClient implements PaymentClient {
 
     private static final Logger log = LoggerFactory.getLogger(FakePaymentClient.class);
@@ -27,8 +27,14 @@ public class FakePaymentClient implements PaymentClient {
         return switch (command.scenario()) {
             // 성공이면 가짜 거래 ID를 발급한 PaymentResult를 반환합니다.
             case SUCCESS -> new PaymentResult("fake-" + UUID.randomUUID());
-            case FAILURE -> throw new PaymentException("결제가 거절되었습니다.");
-            case TIMEOUT -> throw new PaymentException("결제 서버 응답 시간이 초과되었습니다.");
+            case FAILURE -> throw new PaymentException(
+                    PaymentFailureType.DECLINED,
+                    "결제가 거절되었습니다."
+            );
+            case TIMEOUT -> throw new PaymentException(
+                    PaymentFailureType.TIMEOUT,
+                    "결제 서버 응답 시간이 초과되어 결과를 확인 중입니다."
+            );
         };
     }
 
@@ -43,8 +49,12 @@ public class FakePaymentClient implements PaymentClient {
         } catch (InterruptedException exception) {
             // 인터럽트 상태를 다시 표시해 상위 실행기가 종료 신호를 잃지 않게 합니다.
             Thread.currentThread().interrupt();
-            // 중단된 결제도 OrderService가 실패 주문으로 처리하도록 PaymentException으로 바꿉니다.
-            throw new PaymentException("결제 처리가 중단되었습니다.");
+            // 중단된 결제도 결과 미확정 주문으로 남도록 유형이 있는 PaymentException으로 바꿉니다.
+            throw new PaymentException(
+                    PaymentFailureType.INTERRUPTED,
+                    "결제 처리가 중단되어 결과를 확인 중입니다.",
+                    exception
+            );
         }
     }
 }

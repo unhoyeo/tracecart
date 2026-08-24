@@ -1,7 +1,7 @@
 package com.example.tracecart.order.api;
 
 import com.example.tracecart.order.domain.OrderStatus;
-import com.example.tracecart.order.domain.PurchaseOrder;
+import com.example.tracecart.order.application.OrderResult;
 import java.math.BigDecimal;
 import java.time.Instant;
 
@@ -19,21 +19,27 @@ public record OrderResponse(
         BigDecimal totalPrice,
         // 결제 처리 결과를 포함한 현재 주문 상태입니다.
         OrderStatus status,
+        // 결제 승인 시 외부 결제 서버가 발급한 거래 식별자입니다.
+        String transactionId,
         // 결제가 실패했다면 이유가, 성공했다면 null이 들어갑니다.
         String failureReason,
         // 주문이 데이터베이스에 처음 저장된 시각입니다.
-        Instant createdAt
+        Instant createdAt,
+        // 주문 상태가 마지막으로 변경된 시각입니다.
+        Instant updatedAt
 ) {
-    public static OrderResponse from(PurchaseOrder order) {
+    public static OrderResponse from(OrderResult order) {
         return new OrderResponse(
-                order.getId(),
-                order.getUserId(),
-                order.getProductId(),
-                order.getQuantity(),
-                order.getTotalPrice(),
-                order.getStatus(),
-                order.getFailureReason(),
-                order.getCreatedAt()
+                order.id(),
+                order.userId(),
+                order.productId(),
+                order.quantity(),
+                order.totalPrice(),
+                order.status(),
+                order.transactionId(),
+                order.failureReason(),
+                order.createdAt(),
+                order.updatedAt()
         );
     }
 }
