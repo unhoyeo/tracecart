@@ -51,7 +51,7 @@
             <!-- 날짜와 파일 크기를 모두 기준으로 새 파일을 만드는 정책입니다. -->
             <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
                 <!-- 지난 로그 파일 이름에 날짜와 같은 날의 순번을 넣고 gzip으로 압축합니다. -->
-                <fileNamePattern>logs/tracecart.%d{yyyy-MM-dd}.%i.json.gz</fileNamePattern>
+                <fileNamePattern>${logFile}.%d{yyyy-MM-dd}.%i.gz</fileNamePattern>
                 <!-- 활성 파일이 10MB가 되면 같은 날에도 다음 순번 파일로 교체합니다. -->
                 <maxFileSize>10MB</maxFileSize>
                 <!-- 지난 로그 파일을 최대 14일 보관합니다. -->

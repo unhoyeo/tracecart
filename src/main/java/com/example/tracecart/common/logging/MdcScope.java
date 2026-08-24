@@ -1,5 +1,6 @@
 package com.example.tracecart.common.logging;
 
+import java.util.Objects;
 import org.slf4j.MDC;
 
 // try-with-resources 블록 동안만 특정 MDC 값을 유지하는 작은 도우미입니다.
@@ -12,6 +13,8 @@ public final class MdcScope implements AutoCloseable {
 
     // 외부에서는 정적 팩토리 메서드 with를 통해서만 만들도록 생성자를 숨깁니다.
     private MdcScope(String key, String value) {
+        Objects.requireNonNull(key, "MDC 키는 null일 수 없습니다.");
+        Objects.requireNonNull(value, "MDC 값은 null일 수 없습니다.");
         // close()에서 어떤 MDC 항목을 정리할지 알 수 있도록 키 이름을 저장합니다.
         this.key = key;
         // 같은 키가 있으면 기존 값을, 없으면 null을 저장해 close()에서 복원 여부를 판단합니다.
@@ -22,7 +25,7 @@ public final class MdcScope implements AutoCloseable {
 
     // 숫자 ID 등 어떤 객체가 와도 문자열로 바꿔 스코프를 생성합니다.
     public static MdcScope with(String key, Object value) {
-        return new MdcScope(key, String.valueOf(value));
+        return new MdcScope(key, Objects.requireNonNull(value, "MDC 값은 null일 수 없습니다.").toString());
     }
 
     // try-with-resources 블록이 끝나면 Java가 자동으로 호출합니다.

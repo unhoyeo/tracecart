@@ -50,8 +50,6 @@ public class TraceIdFilter extends OncePerRequestFilter {
             MDC.put(TRACE_ID, traceId);
             MDC.put("httpMethod", request.getMethod());
             MDC.put("requestUri", request.getRequestURI());
-            // 사용자 헤더도 안전한 형식일 때만 MDC에 넣습니다.
-            putIfSafe("userId", request.getHeader("X-User-Id"));
             // 장애 신고 시 클라이언트가 traceId를 확인할 수 있도록 응답에도 돌려줍니다.
             response.setHeader(TRACE_HEADER, traceId);
             log.info("HTTP request started");
@@ -59,9 +57,12 @@ public class TraceIdFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
         } finally {
             long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000;
-            MDC.put("status", String.valueOf(response.getStatus()));
-            MDC.put("elapsedMs", String.valueOf(elapsedMs));
-            log.info("HTTP request completed");
+            // 구조화 key-value는 JSON에서 status와 elapsedMs를 숫자 타입으로 보존합니다.
+            log.atInfo()
+                    .addKeyValue("status", response.getStatus())
+                    .addKeyValue("elapsedMs", elapsedMs)
+                    // local 텍스트 로그에서도 두 값을 바로 볼 수 있도록 메시지에도 표시합니다.
+                    .log("HTTP request completed: status={}, elapsedMs={}", response.getStatus(), elapsedMs);
             // Tomcat이 스레드를 재사용하기 전에 이번 요청의 MDC 값을 제거하고 이전 상태를 복구합니다.
             restore(previousContext);
         }
@@ -74,13 +75,6 @@ public class TraceIdFilter extends OncePerRequestFilter {
         }
         // UUID의 하이픈을 제거해 32자리 안전한 새 추적 ID를 만듭니다.
         return UUID.randomUUID().toString().replace("-", "");
-    }
-
-    // 선택적인 헤더 값을 검증한 뒤 MDC에 넣는 메서드입니다.
-    private void putIfSafe(String key, String candidate) {
-        if (candidate != null && SAFE_ID.matcher(candidate).matches()) {
-            MDC.put(key, candidate);
-        }
     }
 
     // 필터 진입 전에 존재했던 MDC 상태로 정확히 되돌립니다.

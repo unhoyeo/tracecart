@@ -11,7 +11,7 @@ import org.springframework.stereotype.Component;
 
 @Component
 // 운영에서는 샘플 데이터가 생기지 않도록 local과 dev에서만 활성화합니다.
-@Profile({"local", "dev"})
+@Profile("(local | dev) & !prod")
 // ApplicationRunner는 Spring 컨테이너 준비가 끝난 직후 실행할 작업을 표현합니다.
 public class DemoDataInitializer implements ApplicationRunner {
 

@@ -3,9 +3,14 @@ package com.example.tracecart.common.logging;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.List;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.slf4j.MDC;
+import org.slf4j.LoggerFactory;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
@@ -64,5 +69,49 @@ class TraceIdFilterTest {
 
         // Then: 응답에는 UUID 하이픈을 뺀 32자리 새 ID가 있어야 합니다.
         assertThat(response.getHeader(TraceIdFilter.TRACE_HEADER)).matches("[a-f0-9]{32}");
+    }
+
+    @Test
+    void doesNotTrustUserIdHeader() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/products");
+        request.addHeader("X-User-Id", "spoofed-user");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        AtomicReference<String> observedUserId = new AtomicReference<>();
+
+        filter.doFilter(request, response, (req, res) -> observedUserId.set(MDC.get("userId")));
+
+        assertThat(observedUserId.get()).isNull();
+    }
+
+    @Test
+    void completionLogContainsVisibleAndTypedStatusAndElapsedTime() throws Exception {
+        Logger logger = (Logger) LoggerFactory.getLogger(TraceIdFilter.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/orders/1");
+            MockHttpServletResponse response = new MockHttpServletResponse();
+
+            filter.doFilter(request, response, (req, res) -> ((MockHttpServletResponse) res).setStatus(202));
+
+            ILoggingEvent completed = appender.list.stream()
+                    .filter(event -> event.getFormattedMessage().startsWith("HTTP request completed"))
+                    .findFirst()
+                    .orElseThrow();
+            assertThat(completed.getFormattedMessage()).contains("status=202", "elapsedMs=");
+            List<org.slf4j.event.KeyValuePair> pairs = completed.getKeyValuePairs();
+            assertThat(pairs).anySatisfy(pair -> {
+                assertThat(pair.key).isEqualTo("status");
+                assertThat(pair.value).isEqualTo(202);
+            });
+            assertThat(pairs).anySatisfy(pair -> {
+                assertThat(pair.key).isEqualTo("elapsedMs");
+                assertThat(pair.value).isInstanceOf(Long.class);
+            });
+        } finally {
+            logger.detachAppender(appender);
+            appender.stop();
+        }
     }
 }

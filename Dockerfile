@@ -8,6 +8,9 @@ ARG JAR_FILE=build/libs/tracecart-0.1.0.jar
 # 호스트에서 미리 빌드한 실행 JAR을 컨테이너 내부 app.jar로 복사합니다.
 COPY ${JAR_FILE} app.jar
 
+# 애플리케이션 프로세스가 컨테이너의 root 권한으로 실행되지 않도록 고정된 일반 사용자 ID를 사용합니다.
+USER 10001:10001
+
 # 애플리케이션이 기본적으로 8080 포트를 사용한다는 메타데이터입니다.
 EXPOSE 8080
 # 컨테이너가 시작되면 Java로 Spring Boot 실행 JAR을 구동합니다.

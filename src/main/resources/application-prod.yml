@@ -54,7 +54,7 @@ management:
       # 공개할 엔드포인트 목록입니다.
       exposure:
         # 런타임 로그 레벨 변경 기능을 빼고 상태, 정보, 메트릭만 노출합니다.
-        include: health,info,metrics
+        include: health
 
 # 운영 전용 애플리케이션 설정입니다.
 app:
