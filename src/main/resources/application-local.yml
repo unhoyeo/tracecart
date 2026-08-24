@@ -20,8 +20,8 @@ spring:
   jpa:
     # Hibernate 스키마 생성 전략입니다.
     hibernate:
-      # 시작할 때 테이블을 만들고 종료할 때 제거합니다.
-      ddl-auto: create-drop
+      # Flyway가 만든 스키마와 엔티티가 다르면 시작을 실패시킵니다.
+      ddl-auto: validate
 
 # local 환경의 패키지별 로그 레벨입니다.
 logging:

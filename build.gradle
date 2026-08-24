@@ -43,6 +43,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-webmvc'
     // RestClient.Builder 빈과 동기식 외부 HTTP 호출 자동 설정을 제공합니다.
     implementation 'org.springframework.boot:spring-boot-starter-restclient'
+    // 애플리케이션 시작 시 버전이 관리되는 DB 스키마 마이그레이션을 실행합니다.
+    implementation 'org.springframework.boot:spring-boot-flyway'
 
     // local과 test 실행 때만 필요한 인메모리 H2 JDBC 드라이버입니다.
     runtimeOnly 'com.h2database:h2'
@@ -51,8 +53,16 @@ dependencies {
 
     // JUnit, AssertJ, Spring Test, MockMvc 등 테스트 도구 모음입니다.
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    // PostgreSQL 컨테이너 연결 정보를 Spring Boot 테스트에 자동으로 제공합니다.
+    testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+    // 실제 PostgreSQL에서 JPA, Flyway, 잠금 동작을 검증하는 일회용 컨테이너입니다.
+    testImplementation 'org.testcontainers:testcontainers-postgresql'
+    // @Testcontainers와 @Container로 컨테이너 생명주기를 JUnit 5에 연결합니다.
+    testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
     // Gradle이 JUnit Platform 테스트 엔진을 실행할 때 필요한 런처입니다.
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    // PostgreSQL용 Flyway SQL 분석과 연결 지원은 별도 데이터베이스 모듈로 제공합니다.
+    runtimeOnly 'org.flywaydb:flyway-database-postgresql'
 }
 
 // Gradle의 test 작업 동작을 설정합니다.

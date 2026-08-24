@@ -12,8 +12,8 @@ spring:
   jpa:
     # Hibernate 스키마 관리 설정입니다.
     hibernate:
-      # 테스트 시작 시 테이블을 만들고 종료할 때 제거해 서로 격리합니다.
-      ddl-auto: create-drop
+      # 테스트도 실제 마이그레이션 결과와 엔티티가 일치하는지 검증합니다.
+      ddl-auto: validate
 
 # 테스트 실행 중 출력할 로그 수준입니다.
 logging:

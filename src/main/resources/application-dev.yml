@@ -12,8 +12,8 @@ spring:
   jpa:
     # Hibernate 스키마 관리 전략입니다.
     hibernate:
-      # 엔티티 변경에 맞춰 개발 DB 스키마를 자동 갱신합니다.
-      ddl-auto: update
+      # 개발 DB도 Flyway 이력과 엔티티가 다르면 시작을 실패시킵니다.
+      ddl-auto: validate
 
 # 개발 환경에서 더 자세히 볼 로그 수준입니다.
 logging:
