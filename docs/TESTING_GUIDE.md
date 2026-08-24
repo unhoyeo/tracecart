@@ -1,168 +1,137 @@
 # TraceCart 테스트 전략
 
-테스트는 모두 같은 방식으로 작성하지 않고, 실패 원인을 빠르게 찾을 수 있도록 계층을 나눴습니다.
+테스트는 실패 원인을 빠르게 찾고 H2의 거짓 양성을 줄이기 위해 계층을 나눕니다.
 
 ```text
-빠르고 격리된 단위 테스트
-        ↓
-Spring + H2 통합 테스트
-        ↓
-프로파일 빈 선택 테스트
-        ↓
-prod 전체 컨텍스트 기동 테스트
-        ↓
-Mock HTTP 기반 운영 결제 계약 테스트
+순수 단위 테스트
+  → Spring + H2 + Flyway 통합 테스트
+  → 프로파일·설정·로그 계약 테스트
+  → Mock HTTP 운영 결제 계약 테스트
+  → 실제 PostgreSQL Testcontainers 테스트
 ```
 
-## 1. 순수 단위 테스트
+## 1. 단위 테스트
 
-Spring 컨테이너, 데이터베이스, HTTP 서버를 사용하지 않습니다.
-
-| 클래스 | 검증 내용 |
+| 영역 | 검증 내용 |
 |---|---|
-| `ProductTest` | 재고 차감·부족·복원과 0/음수 수량, 잘못된 생성 값 |
-| `PurchaseOrderTest` | 상태 전이와 빈 사용자·잘못된 상품/수량/금액 차단 |
-| `FakePaymentClientTest` | SUCCESS, FAILURE, TIMEOUT, 스레드 인터럽트 복원 |
-| `OrderServiceUnitTest` | 성공·거절·타임아웃, 결제 명령, 404, 재고 부족, 서비스 직접 호출의 잘못된 입력 |
-| `MdcTaskDecoratorTest` | 요청 MDC 복사와 실행기 MDC 복원 |
+| Product | 가격·이름·재고 불변식, 차감·복원·부족 |
+| PurchaseOrder | 멱등 요청 비교와 허용·거절 상태 전이 |
+| OrderService | 결제 조율, 재전송, 선점 경쟁, 예상 밖 오류 |
+| FakePaymentClient | 성공·거절·타임아웃·인터럽트 |
+| ExternalPaymentClient | 2xx, 402, 5xx, 타임아웃, 깨진 응답 |
+| MdcScope·Decorator | 중첩 복구, 예외 정리, 스레드 전파 |
+| 설정·프로파일 | 풀 크기·URL 검증, 상충 프로파일 거절 |
 
-OrderService 단위 테스트는 Repository, PaymentClient, ApplicationEventPublisher를 Mockito mock으로 교체합니다. 따라서 실패하면 대부분 서비스 분기 자체의 문제입니다.
+OrderService 단위 테스트에서는 트랜잭션 서비스와 결제 클라이언트를 mock으로 바꿔 외부 결제가 DB 트랜잭션 메서드 사이에서 실행되는 분기만 확인합니다.
 
-## 2. 통합 테스트
+## 2. H2 통합 테스트
 
-`@SpringBootTest`와 test 프로파일의 H2를 사용해 실제 Spring 빈, 트랜잭션, Hibernate를 함께 검증합니다.
+`@SpringBootTest`와 `test` 프로파일을 사용합니다. Flyway가 H2에 운영과 같은 마이그레이션을 적용하고 Hibernate는 `validate`로 정합성을 확인합니다.
 
-| 클래스 | 검증 내용 |
-|---|---|
-| `OrderServiceIntegrationTest` | Fake 빈 선택, 성공·실패·타임아웃의 DB 상태와 재고 |
-| `OrderApiIntegrationTest` | HTTP 201/400/404/409, traceId, 성공·실패·타임아웃, 경계값·깨진 JSON |
-| `AsyncMdcIntegrationTest` | 실제 applicationTaskExecutor 스레드로 MDC 전달 |
-| `OrderPaidAfterCommitIntegrationTest` | 커밋 후 알림 실행과 롤백 시 미실행 |
-| `ProductOptimisticLockIntegrationTest` | 동시 재고 수정 중 하나만 커밋되는지 검증 |
-| `RestClientAutoConfigurationTest` | Boot가 RestClient.Builder 빈을 생성하는지 확인 |
+주요 테스트:
 
-Fake 타임아웃은 업무 분기는 그대로 유지하지만 test 프로파일에서 지연 시간을 0ms로 덮어써 테스트를 빠르게 실행합니다.
+- 성공 주문·거절·타임아웃의 실제 DB 상태
+- 거절 재고 복원과 타임아웃 예약 유지
+- 동일 멱등 키 재전송과 다른 내용 재사용 충돌
+- API의 200/201/202/400/404/409/422 계약
+- 결제 완료 커밋 뒤 비동기 알림
+- 낙관적 잠금
+- 실제 스레드 풀의 MDC 전달
 
-## 3. 프로파일 테스트
+## 3. 운영 결제 계약 테스트
 
-`PaymentClientProfileTest`는 `ApplicationContextRunner`로 필요한 빈만 생성합니다.
+`ExternalPaymentClientTest`는 네트워크를 사용하지 않고 `MockRestServiceServer`를 RestClient에 연결합니다.
 
-```text
-local → FakePaymentClient
-dev   → FakePaymentClient
-test  → FakePaymentClient
-prod  → ExternalPaymentClient
-```
+검증 항목:
 
-전체 애플리케이션을 네 번 띄우지 않기 때문에 빠르면서 `@Profile` 표현식의 오류를 잡을 수 있습니다.
+1. POST `/payments` 요청 JSON
+2. `Idempotency-Key` 전달
+3. `X-Trace-Id` 전달
+4. 거래 ID 역직렬화
+5. 결제 거절을 `DECLINED`으로 분류
+6. 서버 장애를 `UNAVAILABLE`로 분류
+7. 네트워크 타임아웃을 `TIMEOUT`으로 분류
+8. 빈·누락·공백·깨진 응답을 `INVALID_RESPONSE`로 분류
+9. 원인 예외 보존
 
-## 4. 운영환경은 어떻게 테스트하는가
+`ProdProfileContextTest`는 실제 prod 프로파일을 켜되 DB와 결제 주소만 안전한 테스트 값으로 교체합니다. ExternalPaymentClient 단독 선택, Fake 미등록, 운영 RestClient 제한 시간, JSON Logback 설정 파싱을 확인합니다.
 
-자동 테스트가 실제 운영 데이터베이스나 실제 결제 서버에 연결해서는 안 됩니다. 대신 운영 코드와 설정을 유지하고 외부 인프라만 안전한 대역으로 교체합니다.
+## 4. PostgreSQL Testcontainers
 
-### 운영 프로파일 전체 조립
+`PostgreSqlOrderIntegrationTest`는 Docker가 실행 중일 때 `postgres:17-alpine` 컨테이너를 생성합니다.
 
-`ProdProfileContextTest`는 실제로 `prod` 프로파일을 활성화합니다.
+- PostgreSQL에서 Flyway V1 적용
+- 실제 DB 제품 확인
+- 멱등 재전송 시 결제 1회
+- PostgreSQL MVCC 환경의 낙관적 잠금 충돌
 
-```java
-@ActiveProfiles("prod")
-```
+Docker가 없으면 `@Testcontainers(disabledWithoutDocker = true)`에 의해 이 테스트만 건너뜁니다. CI에서는 Docker를 제공해 반드시 실행하는 것을 권장합니다.
 
-그러나 운영 비밀정보와 PostgreSQL 대신 테스트 프로퍼티와 H2를 높은 우선순위로 주입합니다.
+## 5. 로그 테스트
 
-```text
-검증하는 것
-- application-prod.yml 로딩
-- prod Logback JSON 설정 파싱
-- ExternalPaymentClient 단독 선택
-- FakePaymentClient 미등록
-- RestClient.Builder 자동 설정
-- 연결 2초·읽기 3초 제한 시간의 실제 프로퍼티 바인딩
-- JPA와 전체 Spring 컨텍스트 기동
+- `TraceIdFilterTest`: traceId 재사용·교체, 위조 user 헤더 무시, MDC 복구
+- 완료 이벤트의 메시지에 status·elapsedMs 노출
+- 구조화 key-value의 숫자 타입 보존
+- `LogbackProfileConfigurationTest`: local/dev/prod appender와 롤링 경로
+- `ProdProfileContextTest`: 실제 prod JSON Logback 설정 파싱
 
-검증하지 못하는 것
-- PostgreSQL 고유 SQL과 데이터 타입 차이
-- 실제 네트워크, DNS, TLS 인증서
-- 실제 결제사의 요청 계약
-- 운영 Secret과 방화벽 설정
-```
-
-### 운영 외부 결제 클라이언트
-
-`ExternalPaymentClientTest`는 `MockRestServiceServer`를 RestClient.Builder에 연결합니다. 네트워크를 사용하지 않지만 실제 HTTP 요청 생성과 응답 처리는 그대로 실행합니다.
-
-검증 시나리오:
-
-1. POST `/payments` 성공과 거래 ID 역직렬화
-2. 운영 요청 JSON의 orderId, userId, amount
-3. HTTP 500을 PaymentException으로 변환
-4. 네트워크 타임아웃을 PaymentException으로 변환
-5. 2xx 빈 본문, 거래 ID 누락·공백을 실패로 처리
-6. 깨진 성공 JSON을 PaymentException으로 변환
-7. Fake 전용 PaymentScenario를 운영 요청에서 제외
-
-### 실제 PostgreSQL 차이까지 검증하려면
-
-CI에서는 별도 단계로 일회용 PostgreSQL 컨테이너를 띄우는 Testcontainers 테스트를 추가하는 것이 좋습니다. 이 단계에서는 운영 DB에 연결하지 않고 테스트가 끝나면 컨테이너를 폐기합니다.
+## 6. 운영환경 검증 단계
 
 ```text
-단위/통합 테스트
-  → 매 커밋 실행
+매 커밋
+  → 단위 + H2 + 프로파일 + Mock HTTP
 
-PostgreSQL Testcontainers
-  → PR 또는 CI 실행
+Docker 사용 CI
+  → PostgreSQL Testcontainers
 
-결제사 sandbox 계약 테스트
-  → 배포 전 실행
+배포 전
+  → 결제사 sandbox 계약 테스트
 
-staging smoke test
-  → 실제 배포 구성, 가짜 결제 계정으로 실행
+staging
+  → 실제 Secret·DNS·TLS·방화벽·마이그레이션 검증
 
-production smoke/canary
-  → 읽기 전용 health와 최소 안전 경로만 확인
+production
+  → health와 안전한 읽기 경로 smoke/canary
 ```
 
-운영환경 테스트의 핵심은 “운영 시스템에 테스트 데이터를 보내는 것”이 아니라 “운영과 같은 프로파일·빈·직렬화·DB 종류를 일회용 인프라에서 검증하는 것”입니다.
+실제 운영 DB에 자동 테스트 데이터를 넣는 것이 아니라 운영과 같은 코드·프로파일·DB 종류를 일회용 환경에서 검증하는 것이 핵심입니다.
 
-## 5. 현재 테스트가 보장하지 않는 경계
-
-자동 테스트가 많아도 가능한 모든 실패를 증명할 수는 없습니다. 현재 남은 중요한 운영 경계는 다음과 같습니다.
-
-- 동일 HTTP 요청 재전송에 대한 주문·결제 멱등성
-- 커밋 직후 프로세스 종료에도 알림을 보존하는 트랜잭셔널 아웃박스
-- PostgreSQL 실제 격리 수준과 드라이버 차이를 확인하는 Testcontainers 테스트
-- 결제사 sandbox의 DNS, TLS, 인증, 실제 오류 본문 계약
-- 외부 결제 승인 뒤 우리 DB 커밋이 실패하는 분산 트랜잭션 보상
-
-이 항목들은 단위 테스트를 더 늘리는 것보다 멱등 키, 아웃박스, 보상 결제 같은 설계 변경과 일회용 외부 인프라가 먼저 필요합니다.
-
-## 6. 실행 명령
+## 7. 실행 명령
 
 전체 테스트:
 
 ```bash
-./gradlew test
+./gradlew clean test
 ```
 
-단위 테스트 예시:
+핵심 단위 테스트:
 
 ```bash
-./gradlew test --tests '*ProductTest'
-./gradlew test --tests '*PurchaseOrderTest'
-./gradlew test --tests '*FakePaymentClientTest'
 ./gradlew test --tests '*OrderServiceUnitTest'
+./gradlew test --tests '*PurchaseOrderTest'
+./gradlew test --tests '*MdcScopeTest'
 ```
 
-프로파일과 운영 구성만 실행:
+운영 구성:
 
 ```bash
-./gradlew test --tests '*PaymentClientProfileTest'
 ./gradlew test --tests '*ProdProfileContextTest'
 ./gradlew test --tests '*ExternalPaymentClientTest'
 ```
 
-테스트 리포트:
+PostgreSQL:
 
-```text
-build/reports/tests/test/index.html
+```bash
+./gradlew test --tests '*PostgreSqlOrderIntegrationTest'
 ```
+
+HTML 리포트는 `build/reports/tests/test/index.html`에서 확인합니다.
+
+## 8. 아직 자동화하지 않은 경계
+
+- 실제 결제사 sandbox의 인증·DNS·TLS
+- `PAYMENT_UNKNOWN` 자동 대사
+- 결제 성공 뒤 장기 DB 장애의 재처리
+- 프로세스 강제 종료 시 인메모리 알림 유실
+
+이 경계는 테스트 추가만으로 해결되지 않으며 결제 조회 API, 재처리 워커, 트랜잭셔널 아웃박스 같은 설계 확장이 필요합니다.

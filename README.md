@@ -1,105 +1,108 @@
 # TraceCart
 
-Logback, MDC, Spring Profiles를 실제 장애 추적 문제에 적용한 주문 처리 포트폴리오 프로젝트입니다.
+Logback, MDC, Spring Profiles를 주문·재고·결제 장애 추적에 적용한 Java 21 포트폴리오 프로젝트입니다.
 
-주문 요청이 재고, 결제, 비동기 알림을 통과하는 동안 같은 `traceId`를 유지합니다. 결제 실패와 타임아웃을 API 입력으로 재현하고, local/dev/prod 환경별로 로그 형식과 인프라 구현을 교체할 수 있습니다.
+한 주문의 HTTP 요청, 짧게 분리된 DB 트랜잭션, 외부 결제, 커밋 이후 비동기 알림을 같은 `traceId`와 `orderId`로 연결합니다. local/dev에서는 요청 헤더로 성공·거절·타임아웃을 재현하고, prod에서는 실제 HTTP 결제 구현만 활성화합니다.
 
-> 처음 코드를 읽는다면 [`docs/CODE_WALKTHROUGH.md`](docs/CODE_WALKTHROUGH.md)의 실행 순서를 먼저 따라가세요. 주요 Java 코드와 설정에는 각 줄의 목적을 설명하는 한글 주석이 포함되어 있습니다.
->
-> 테스트 계층과 운영 프로파일 검증 방법은 [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md)에 정리했습니다.
+> 코드 실행 순서는 [`docs/CODE_WALKTHROUGH.md`](docs/CODE_WALKTHROUGH.md), 테스트 계층과 운영 검증 방법은 [`docs/TESTING_GUIDE.md`](docs/TESTING_GUIDE.md)를 먼저 보세요.
 
 ## 기술 스택
 
-- Java 21
-- Spring Boot 4.1.1
-- Gradle 9.7.1 Wrapper
-- Spring MVC, Validation, Data JPA, Actuator
-- Logback + Spring Boot Structured Logging
+- Java 21, Spring Boot 4.1.1, Gradle 9.7.1
+- Spring MVC, Validation, Data JPA, Actuator, RestClient
+- Logback + Spring Boot Structured Logging + MDC
+- Flyway
 - H2(local/test), PostgreSQL(dev/prod)
+- Testcontainers PostgreSQL
 
-## 구조
+## 핵심 처리 흐름
 
 ```text
-HTTP request
-  └─ TraceIdFilter
-       ├─ MDC: traceId, httpMethod, requestUri, userId
+TraceIdFilter
+  └─ OrderController
+       ├─ HTTP DTO → CreateOrderCommand
        └─ OrderService
-            ├─ Product 재고 차감
-            ├─ PaymentClient
-            │    ├─ FakePaymentClient (!prod)
-            │    └─ ExternalPaymentClient (prod)
-            └─ OrderPaidEvent
-                 └─ AFTER_COMMIT 비동기 리스너
-                      ├─ NotificationService
-                      └─ MdcTaskDecorator가 traceId 복사 및 복원
+            ├─ 짧은 트랜잭션 1: 멱등 주문 PENDING 생성 + 재고 예약
+            ├─ 짧은 트랜잭션 2: PAYMENT_PROCESSING 선점
+            ├─ 트랜잭션 밖: PaymentClient 호출
+            └─ 짧은 트랜잭션 3
+                 ├─ 승인 → PAID + 거래 ID + 커밋 후 알림
+                 ├─ 명시적 거절 → PAYMENT_DECLINED + 재고 복원
+                 └─ 타임아웃/통신 장애 → PAYMENT_UNKNOWN + 재고 예약 유지
 ```
 
-핵심 패키지는 다음과 같습니다.
-
-```text
-com.example.tracecart
-├── common
-│   ├── config       # 비동기 실행기 및 타입 안전 설정
-│   ├── exception    # 일관된 오류 응답
-│   └── logging      # 요청 MDC, 스코프, 비동기 전파
-├── order            # 주문 API, 애플리케이션, 도메인
-├── payment          # 프로파일별 결제 클라이언트
-├── product          # 상품과 재고
-└── notification     # 비동기 알림
-```
+외부 결제 중에는 상품 행 잠금과 DB 커넥션을 유지하지 않습니다. `Idempotency-Key`와 주문의 결제 선점 상태로 같은 요청의 중복 주문·결제를 막습니다.
 
 ## 실행
 
-JDK 21이 필요합니다.
+JDK 21에서 다음 명령을 실행합니다.
 
 ```bash
 ./gradlew bootRun
 ```
 
-기본 프로파일은 `local`이며 H2와 Fake 결제를 사용합니다. 기동 후 상품을 조회합니다.
+기본 프로파일은 `local`입니다. Flyway가 H2 스키마를 만들고 데모 상품 세 개를 적재합니다.
 
 ```bash
 curl http://localhost:8080/api/products
 ```
 
-성공 주문을 생성합니다.
+성공 주문:
 
 ```bash
 curl -i -X POST http://localhost:8080/api/orders \
   -H 'Content-Type: application/json' \
   -H 'X-Trace-Id: portfolio-demo-0001' \
+  -H 'Idempotency-Key: order-request-0001' \
+  -H 'X-Demo-Payment-Scenario: SUCCESS' \
   -d '{
     "userId": "user-100",
     "productId": 1,
-    "quantity": 2,
-    "paymentScenario": "SUCCESS"
+    "quantity": 2
   }'
 ```
 
-`paymentScenario`를 `FAILURE` 또는 `TIMEOUT`으로 바꾸면 결제 장애, 주문 실패 기록, 재고 복원을 확인할 수 있습니다.
+IntelliJ에서는 [`http/tracecart.http`](http/tracecart.http)를 열면 성공, 재전송, 거절, 타임아웃과 예외 요청을 순서대로 실행할 수 있습니다.
 
-```bash
-curl http://localhost:8080/api/orders/1
-curl http://localhost:8080/actuator/health
-```
+## API 상태 정책
+
+| 결과 | HTTP | 주문 상태 | 재고 |
+|---|---:|---|---|
+| 최초 결제 승인 | 201 | `PAID` | 차감 유지 |
+| 승인 주문 멱등 재전송 | 200 | `PAID` | 추가 차감 없음 |
+| 명시적 결제 거절 | 422 | `PAYMENT_DECLINED` | 복원 |
+| 타임아웃·통신 장애 | 202 | `PAYMENT_UNKNOWN` | 예약 유지 |
+| 재고 부족·멱등 키 오용 | 409 | 생성 안 함 | 변경 없음 |
+
+타임아웃은 실패가 아니라 결과를 모르는 상태입니다. 실제 결제사가 승인했을 가능성이 있으므로 즉시 재결제하거나 재고를 풀지 않습니다.
+
+## 요청 헤더
+
+- `X-Trace-Id`: 선택 사항입니다. 안전한 8~64자 값이면 재사용하고 아니면 서버가 새 ID를 발급해 응답 헤더에 돌려줍니다.
+- `Idempotency-Key`: 주문 생성에 필수인 8~64자 키입니다. 동일 요청 재전송에는 같은 키를 사용해야 합니다.
+- `X-Demo-Payment-Scenario`: local/dev/test 전용이며 `SUCCESS`, `FAILURE`, `TIMEOUT`을 받습니다. prod에서는 이 헤더를 거절합니다.
+
+`X-User-Id`는 신뢰할 수 없는 클라이언트 헤더이므로 사용하지 않습니다. 현재 데모는 검증된 요청 본문의 사용자 ID를 MDC에 넣으며, 인증을 추가한다면 Spring Security principal을 사용해야 합니다.
 
 ## 프로파일
 
-| 프로파일 | 데이터베이스 | 결제 구현 | 로그 |
+| 프로파일 | DB | 결제 구현 | 로그 |
 |---|---|---|---|
-| local | 인메모리 H2 | Fake | 컬러 패턴 콘솔, 애플리케이션 DEBUG |
-| dev | PostgreSQL | Fake | 패턴 콘솔 + 일별/크기별 JSON 롤링 파일 |
-| prod | PostgreSQL | 외부 HTTP | Logstash JSON stdout, INFO |
-| test | 인메모리 H2 | Fake | 최소 콘솔 로그 |
+| local | H2 | Fake | 읽기 쉬운 컬러 콘솔 |
+| dev | PostgreSQL | Fake | 텍스트 콘솔 + JSON 롤링 파일 |
+| test | H2 또는 Testcontainers | Fake/Mock | 최소 콘솔 |
+| prod | PostgreSQL | External HTTP | Logstash JSON stdout |
 
-개발 프로파일 실행:
+Fake 결제는 `local | dev | test`에서만 활성화됩니다. `prod`와 다른 프로파일을 동시에 켜거나 알 수 없는 프로파일을 사용하면 기동에 실패합니다.
+
+개발 PostgreSQL:
 
 ```bash
 docker compose up -d postgres
 SPRING_PROFILES_ACTIVE=dev ./gradlew bootRun
 ```
 
-운영 프로파일에 필요한 환경변수:
+운영 필수 환경변수:
 
 ```text
 SPRING_PROFILES_ACTIVE=prod
@@ -111,16 +114,21 @@ PAYMENT_BASE_URL=https://payment.example.com
 
 ## 로그 설계
 
-`TraceIdFilter`는 안전한 `X-Trace-Id`만 수용하고, 값이 없거나 형식이 잘못되면 새 ID를 생성합니다. 처리 후 기존 MDC를 복원하여 톰캣 스레드 재사용 시 컨텍스트가 새 요청으로 누출되지 않게 합니다.
-
-local 로그 예시:
+local 완료 로그에는 상태와 처리 시간이 직접 보입니다.
 
 ```text
-12:30:10.123 INFO [http-nio-8080-exec-1] [traceId=portfolio-demo-0001 orderId=1 userId=user-100] c.e.t.o.application.OrderService - Payment approved: transactionId=fake-...
-12:30:10.125 INFO [notification-1] [traceId=portfolio-demo-0001 orderId=1 userId=user-100] c.e.t.notification.NotificationService - Order completion notification sent: orderId=1, recipient=user-100
+HTTP request completed: status=201, elapsedMs=84
 ```
 
-dev와 prod의 구조화 로그에는 MDC의 모든 키가 JSON 필드로 들어가므로 Loki, Elasticsearch 등에서 `traceId`로 검색할 수 있습니다. 비밀번호, 토큰, 카드번호, 이메일 원문은 MDC 또는 업무 로그에 기록하지 않습니다.
+dev/prod 구조화 로그에서는 `status`와 `elapsedMs`가 숫자 key-value로 기록되고 MDC의 `traceId`, `orderId`, `userId`, `httpMethod`, `requestUri`가 JSON 필드로 들어갑니다.
+
+`MdcTaskDecorator`는 요청의 MDC를 `notification-*` 스레드로 복사하고 작업 후 원래 상태를 복원합니다. 알림은 `AFTER_COMMIT` 이벤트이므로 결제 완료 트랜잭션이 롤백되면 실행되지 않습니다.
+
+운영 결제 요청에는 같은 `X-Trace-Id`와 `Idempotency-Key`를 전달합니다. 비밀번호, 토큰, 카드번호, 원문 외부 응답은 로그에 기록하지 않습니다.
+
+## DB 스키마
+
+Flyway의 [`V1__create_order_schema.sql`](src/main/resources/db/migration/V1__create_order_schema.sql)이 모든 환경의 테이블과 제약조건을 생성합니다. Hibernate는 `ddl-auto=validate`만 수행하므로 애플리케이션이 임의로 운영 스키마를 수정하지 않습니다.
 
 ## 테스트
 
@@ -128,37 +136,27 @@ dev와 prod의 구조화 로그에는 MDC의 모든 키가 JSON 필드로 들어
 ./gradlew test
 ```
 
-테스트하는 주요 위험은 다음과 같습니다.
+Docker가 실행 중이면 PostgreSQL Testcontainers 테스트도 수행합니다. Docker가 없으면 해당 두 테스트만 건너뛰고 H2 기반 단위·통합·프로파일·로그 테스트는 계속 실행합니다.
 
-- 요청 `traceId` 수용 및 비정상 값 교체
-- 요청 종료 후 MDC 복원
-- 비동기 작업으로 MDC 전달 후 실행기 컨텍스트 복원
-- test 프로파일에서 Fake 결제 구현 선택
-- 결제 성공 시 재고 차감 및 주문 완료
-- 결제 실패 시 실패 주문 저장 및 재고 복원
-- 주문 API의 응답 상태와 `X-Trace-Id` 헤더
-- 성공·결제 거절·타임아웃의 단위 및 통합 흐름
-- 0·음수·최대치 초과 수량, 잘못된 상품 ID, 필수값 누락, 깨진 JSON
-- local/dev/test/prod 프로파일별 PaymentClient 선택
-- prod 전체 컨텍스트와 RestClient.Builder 자동 설정
-- 운영 프로파일의 연결 2초·읽기 3초 타임아웃 바인딩
-- 운영 결제 HTTP 2xx, 5xx, 네트워크 타임아웃, 빈·누락·공백 응답 계약
-- 동시 재고 차감 시 낙관적 잠금 충돌과 HTTP 409 변환
-- 주문 트랜잭션 커밋 후에만 비동기 완료 알림 실행
+주요 검증 범위:
 
-## 설계상 트레이드오프
+- 결제 성공·명시적 거절·타임아웃·통신 장애 분류
+- 타임아웃 재고 예약 유지와 거절 재고 복원
+- 주문 멱등 재전송과 키 오용 충돌
+- 외부 결제의 추적 ID·멱등성 키 전달
+- 트랜잭션 분리와 커밋 후 비동기 알림
+- H2 및 실제 PostgreSQL 낙관적 잠금
+- MDC 중첩·예외 정리·비동기 전파
+- local/dev/prod Logback 설정과 구조화 완료 로그
+- 프로파일 선택·상충 방지·설정값 검증
+- Flyway 스키마와 JPA 엔티티 정합성
 
-- 데모를 간결하게 유지하기 위해 주문 하나가 상품 하나만 가집니다.
-- 결제 실패 주문을 남기기 위해 결제 예외를 주문 트랜잭션 안에서 상태로 변환합니다.
-- 알림은 커밋 이후 이벤트로 실행되지만 현재 로그 기반 Fake 구현입니다. 프로세스가 커밋 직후 종료돼도 유실되지 않게 하려면 트랜잭셔널 아웃박스가 필요합니다.
-- 같은 주문 요청의 중복 전송을 막는 멱등성 키는 아직 구현하지 않았습니다. 실제 결제를 붙이기 전에 반드시 추가해야 합니다.
-- dev의 `ddl-auto=update`는 빠른 데모용입니다. 운영 배포에서는 Flyway 같은 명시적 스키마 마이그레이션으로 교체해야 합니다.
+## 남은 운영 과제
 
-## 다음 확장 후보
+- `PAYMENT_UNKNOWN` 주문을 결제사 조회 API로 대사하는 스케줄러
+- 결제 승인 뒤 DB 장애가 지속될 때의 재처리·보상 정책
+- 프로세스 종료에도 알림을 보존하는 트랜잭셔널 아웃박스
+- Spring Security 인증 principal 기반 사용자 식별
+- Micrometer Tracing과 W3C `traceparent`
 
-1. Loki + Grafana에서 `traceId`, `orderId`, 실패 사유 대시보드 구성
-2. Micrometer Tracing으로 W3C `traceparent`와 MDC 연결
-3. 트랜잭셔널 아웃박스와 Kafka/RabbitMQ 기반 알림
-4. Testcontainers로 PostgreSQL 프로파일 통합 테스트
-5. 인증 principal에서 `userId`를 가져오고 로그 마스킹 정책 자동화
-6. `Idempotency-Key`와 결제사 멱등 키를 이용한 중복 결제 방지
+이 항목들은 현재 프로젝트의 로그·MDC·멀티프로파일 학습 범위를 넘어가므로 다음 확장 단계로 남겨 두었습니다.

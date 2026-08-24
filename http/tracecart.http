@@ -1,0 +1,152 @@
+# IntelliJ HTTP Client에서 공통으로 사용할 local 서버 주소입니다.
+@baseUrl = http://localhost:8080
+# local 프로파일이 만드는 첫 번째 데모 상품 ID입니다.
+@productId = 1
+
+### 0. 상품 목록과 최초 재고 확인
+GET {{baseUrl}}/api/products
+X-Trace-Id: manual-products-0001
+
+### 1. 결제 성공: 201 PAID
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+X-Trace-Id: manual-success-0001
+Idempotency-Key: manual-order-success-0001
+X-Demo-Payment-Scenario: SUCCESS
+
+{
+  "userId": "manual-user-1",
+  "productId": {{productId}},
+  "quantity": 1
+}
+
+> {%
+    client.global.set("successOrderId", response.body.id);
+%}
+
+### 2. 같은 요청 재전송: 200, 같은 주문 ID와 거래 ID, 추가 재고 차감 없음
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+X-Trace-Id: manual-success-replay-0001
+Idempotency-Key: manual-order-success-0001
+X-Demo-Payment-Scenario: SUCCESS
+
+{
+  "userId": "manual-user-1",
+  "productId": {{productId}},
+  "quantity": 1
+}
+
+### 3. 성공 주문 조회
+GET {{baseUrl}}/api/orders/{{successOrderId}}
+X-Trace-Id: manual-order-get-0001
+
+### 4. 명시적 결제 거절: 422 PAYMENT_DECLINED, 재고 복원
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+X-Trace-Id: manual-decline-0001
+Idempotency-Key: manual-order-decline-0001
+X-Demo-Payment-Scenario: FAILURE
+
+{
+  "userId": "manual-user-2",
+  "productId": {{productId}},
+  "quantity": 1
+}
+
+### 5. 결제 타임아웃: 202 PAYMENT_UNKNOWN, 중복 판매 방지를 위해 재고 예약 유지
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+X-Trace-Id: manual-timeout-0001
+Idempotency-Key: manual-order-timeout-0001
+X-Demo-Payment-Scenario: TIMEOUT
+
+{
+  "userId": "manual-user-3",
+  "productId": {{productId}},
+  "quantity": 1
+}
+
+### 6. 성공·거절·타임아웃 뒤 재고 확인
+# 성공 1개와 결과 미확정 1개가 재고를 예약하므로 최초 재고보다 2개 적어야 합니다.
+GET {{baseUrl}}/api/products
+X-Trace-Id: manual-stock-check-0001
+
+### 7. 멱등성 키를 다른 요청에 재사용: 409
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+X-Trace-Id: manual-idempotency-conflict-0001
+Idempotency-Key: manual-order-success-0001
+X-Demo-Payment-Scenario: SUCCESS
+
+{
+  "userId": "manual-user-1",
+  "productId": {{productId}},
+  "quantity": 2
+}
+
+### 8. 멱등성 키 누락: 400 MISSING_IDEMPOTENCY_KEY
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+X-Trace-Id: manual-missing-key-0001
+
+{
+  "userId": "manual-user-4",
+  "productId": {{productId}},
+  "quantity": 1
+}
+
+### 9. 재고 부족: 409 INSUFFICIENT_STOCK
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+X-Trace-Id: manual-stock-error-0001
+Idempotency-Key: manual-order-stock-0001
+X-Demo-Payment-Scenario: SUCCESS
+
+{
+  "userId": "manual-user-5",
+  "productId": {{productId}},
+  "quantity": 100
+}
+
+### 10. 허용되지 않는 수량: 400 INVALID_REQUEST
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+X-Trace-Id: manual-quantity-0001
+Idempotency-Key: manual-order-quantity-0001
+
+{
+  "userId": "manual-user-6",
+  "productId": {{productId}},
+  "quantity": 0
+}
+
+### 11. 알 수 없는 데모 결제 시나리오: 400 INVALID_PAYMENT_SCENARIO
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+X-Trace-Id: manual-scenario-error-0001
+Idempotency-Key: manual-order-scenario-0001
+X-Demo-Payment-Scenario: UNKNOWN
+
+{
+  "userId": "manual-user-7",
+  "productId": {{productId}},
+  "quantity": 1
+}
+
+### 12. 존재하지 않는 상품: 404 PRODUCT_NOT_FOUND
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+X-Trace-Id: manual-product-error-0001
+Idempotency-Key: manual-order-product-0001
+X-Demo-Payment-Scenario: SUCCESS
+
+{
+  "userId": "manual-user-8",
+  "productId": 999999,
+  "quantity": 1
+}
+
+### 13. 안전하지 않은 traceId 교체
+GET {{baseUrl}}/api/products
+X-Trace-Id: bad
