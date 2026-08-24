@@ -160,26 +160,6 @@ class OrderServiceUnitTest {
         verifyNoInteractions(paymentClient, eventPublisher);
     }
 
-    @Test
-    void rejectsNullRequestBeforeCallingAnyCollaborator() {
-        assertThatThrownBy(() -> orderService.create(null))
-                .isInstanceOfSatisfying(BusinessException.class, exception -> {
-                    assertThat(exception.status()).isEqualTo(HttpStatus.BAD_REQUEST);
-                    assertThat(exception.code()).isEqualTo("INVALID_REQUEST");
-                });
-        verifyNoInteractions(productRepository, orderRepository, paymentClient, eventPublisher);
-    }
-
-    @Test
-    void rejectsMissingScenarioBeforeDecreasingStock() {
-        CreateOrderRequest invalidRequest = new CreateOrderRequest("user-1", 1L, 1, null);
-
-        assertThatThrownBy(() -> orderService.create(invalidRequest))
-                .isInstanceOfSatisfying(BusinessException.class, exception ->
-                        assertThat(exception.code()).isEqualTo("INVALID_REQUEST"));
-        verifyNoInteractions(productRepository, orderRepository, paymentClient, eventPublisher);
-    }
-
     private Product productWithStock(int stock) {
         return new Product("Keyboard", new BigDecimal("10000.00"), stock);
     }

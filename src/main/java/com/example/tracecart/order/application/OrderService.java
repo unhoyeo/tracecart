@@ -44,8 +44,6 @@ public class OrderService {
 
     @Transactional
     public OrderResponse create(CreateOrderRequest request) {
-        // HTTP Controller 밖에서 서비스를 직접 호출해도 동일한 입력 경계를 지키도록 먼저 검증합니다.
-        validateCreateRequest(request);
         // 메서드 전체 로그에 사용자 ID가 붙고 종료 후 이전 MDC 상태가 자동 복구됩니다.
         try (MdcScope ignored = MdcScope.with("userId", request.userId())) {
             Product product = productRepository.findById(request.productId())
@@ -69,27 +67,6 @@ public class OrderService {
                 processPayment(order, product, request);
                 return OrderResponse.from(order);
             }
-        }
-    }
-
-    // @Valid가 적용되지 않는 내부 호출, 배치, 메시지 소비자에서도 잘못된 주문을 차단합니다.
-    private void validateCreateRequest(CreateOrderRequest request) {
-        // null 요청 자체와 각 필드의 필수값·범위·허용 문자를 API DTO 규칙과 동일하게 확인합니다.
-        boolean invalid = request == null
-                || request.userId() == null
-                || !request.userId().matches("[A-Za-z0-9._-]{3,64}")
-                || request.productId() == null
-                || request.productId() <= 0
-                || request.quantity() < 1
-                || request.quantity() > 100
-                || request.paymentScenario() == null;
-        // 잘못된 요청이면 저장소나 결제 클라이언트를 호출하기 전에 업무 예외로 종료합니다.
-        if (invalid) {
-            throw new BusinessException(
-                    HttpStatus.BAD_REQUEST,
-                    "INVALID_REQUEST",
-                    "주문 요청 값이 올바르지 않습니다."
-            );
         }
     }
 
