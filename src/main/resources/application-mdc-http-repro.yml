@@ -1,0 +1,7 @@
+# HTTP 요청 간 MDC 오염을 결정적으로 재현하기 위한 실험 전용 프로파일입니다.
+server:
+  tomcat:
+    threads:
+      # A와 B 요청이 반드시 같은 Tomcat 작업 스레드를 재사용하게 합니다.
+      max: 1
+      min-spare: 1

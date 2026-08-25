@@ -1,0 +1,43 @@
+@baseUrl = http://localhost:8080
+
+### 대상 브랜치와 실행 설정
+# BEFORE: experiment/before-mdc-thread-cleanup
+# AFTER: main
+# IntelliJ Active profiles: local,mdc-http-repro
+# HTTP 스레드를 1개로 제한해 A와 B가 반드시 같은 스레드를 사용하게 합니다.
+
+### A 사용자 요청: 재사용될 HTTP 스레드에 user-A를 기록
+GET {{baseUrl}}/api/products
+X-Trace-Id: privacy-request-a-0001
+X-User-Id: user-A-0001
+
+> {%
+    client.test("A 사용자 상품 조회 성공", function () {
+        client.assert(response.status === 200);
+    });
+%}
+
+### B 사용자 요청: 실제 주문자는 user-B지만 요청 헤더에는 사용자 ID가 없음
+# BEFORE의 기대 로그:
+# [traceId=privacy-request-b-0002 userId=user-A-0001] HTTP request started
+# [traceId=privacy-request-b-0002 orderId=1 userId=user-B-0002] Order created
+# [traceId=privacy-request-b-0002 userId=user-A-0001] HTTP request completed
+#
+# AFTER(main)의 시작·완료 로그에는 user-A가 없어야 합니다.
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+X-Trace-Id: privacy-request-b-0002
+
+{
+  "userId": "user-B-0002",
+  "productId": 1,
+  "quantity": 1,
+  "paymentScenario": "SUCCESS"
+}
+
+> {%
+    client.test("실제 주문자는 user-B", function () {
+        client.assert(response.status === 201);
+        client.assert(response.body.userId === "user-B-0002");
+    });
+%}

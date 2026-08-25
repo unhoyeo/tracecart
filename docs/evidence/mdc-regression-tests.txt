@@ -1,0 +1,23 @@
+[experiment/before-mdc-scope]
+OrderServiceUnitTest > successDecreasesStockMarksPaidAndRequestsNotification() FAILED
+AssertionFailedError at OrderServiceUnitTest.java:84
+6 tests completed, 1 failed
+
+[experiment/before-mdc-thread-cleanup]
+TraceIdFilterTest > usesIncomingTraceIdAndRestoresPreviousContext() FAILED
+AssertionFailedError at TraceIdFilterTest.java:47
+2 tests completed, 1 failed
+
+[experiment/before-async-propagation]
+AsyncMdcIntegrationTest > configuredExecutorCopiesRequestMdcToWorkerThread() FAILED
+AssertionFailedError at AsyncMdcIntegrationTest.java:48
+1 test completed, 1 failed
+
+[experiment/before-task-decorator-restore]
+MdcTaskDecoratorTest > copiesCallerContextAndRestoresExecutorContext() FAILED
+AssertionFailedError at MdcTaskDecoratorTest.java:41
+1 test completed, 1 failed
+
+[main]
+./gradlew test
+BUILD SUCCESSFUL
