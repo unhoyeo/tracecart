@@ -1,0 +1,7 @@
+# 비동기 작업 간 MDC 오염을 결정적으로 재현하기 위한 실험 전용 프로파일입니다.
+app:
+  async:
+    # A와 B 알림이 반드시 같은 notification 작업 스레드를 재사용하게 합니다.
+    core-pool-size: 1
+    max-pool-size: 1
+    queue-capacity: 100
