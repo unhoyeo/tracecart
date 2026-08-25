@@ -5,7 +5,6 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import org.slf4j.Logger;
@@ -40,8 +39,6 @@ public class TraceIdFilter extends OncePerRequestFilter {
             FilterChain filterChain // 다음 필터 또는 최종 Controller로 요청을 넘기는 체인입니다.
     ) throws ServletException, IOException {
 
-        // 현재 스레드에 선행 필터가 넣은 MDC 값이 있다면 마지막에 복구하려고 보관합니다.
-        Map<String, String> previousContext = MDC.getCopyOfContextMap();
         // 요청 헤더가 안전하면 재사용하고, 아니면 서버가 새 traceId를 만듭니다.
         String traceId = resolveTraceId(request.getHeader(TRACE_HEADER));
         long startedAt = System.nanoTime();
@@ -62,8 +59,7 @@ public class TraceIdFilter extends OncePerRequestFilter {
             MDC.put("status", String.valueOf(response.getStatus()));
             MDC.put("elapsedMs", String.valueOf(elapsedMs));
             log.info("HTTP request completed");
-            // Tomcat이 스레드를 재사용하기 전에 이번 요청의 MDC 값을 제거하고 이전 상태를 복구합니다.
-            restore(previousContext);
+            // BEFORE: 요청이 끝나도 MDC를 비우지 않아 재사용되는 Tomcat 스레드에 값이 남습니다.
         }
     }
 
@@ -80,14 +76,6 @@ public class TraceIdFilter extends OncePerRequestFilter {
     private void putIfSafe(String key, String candidate) {
         if (candidate != null && SAFE_ID.matcher(candidate).matches()) {
             MDC.put(key, candidate);
-        }
-    }
-
-    // 필터 진입 전에 존재했던 MDC 상태로 정확히 되돌립니다.
-    private void restore(Map<String, String> context) {
-        MDC.clear();
-        if (context != null) {
-            MDC.setContextMap(context);
         }
     }
 }
