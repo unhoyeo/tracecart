@@ -15,25 +15,12 @@ public class MdcTaskDecorator implements TaskDecorator {
 
         // 원래 작업을 감싼 새 작업을 스레드 풀에 전달합니다.
         return () -> {
-            // 풀의 스레드가 이전부터 가지고 있던 MDC도 나중에 되돌리기 위해 보관합니다.
-            Map<String, String> executorContext = MDC.getCopyOfContextMap();
-            try {
-                // 비동기 스레드의 MDC를 요청 스레드에서 복사한 값으로 교체합니다.
-                replaceContext(callerContext);
-                // 이제 원래 비동기 메서드를 실행하므로 그 안의 로그에도 같은 traceId가 찍힙니다.
-                runnable.run();
-            } finally {
-                // 성공하거나 예외가 발생해도 풀 스레드에 요청 정보가 남지 않도록 원래 상태로 복구합니다.
-                replaceContext(executorContext);
+            // BEFORE: 기존 값을 지우지 않고 호출자에게 있는 키만 덮어씁니다.
+            if (callerContext != null) {
+                callerContext.forEach(MDC::put);
             }
+            // BEFORE: 작업이 끝난 뒤 풀 스레드의 원래 MDC를 복원하지 않습니다.
+            runnable.run();
         };
-    }
-
-    // MDC를 전달받은 상태로 정확히 교체하는 공통 메서드입니다.
-    private void replaceContext(Map<String, String> context) {
-        MDC.clear();
-        if (context != null) {
-            MDC.setContextMap(context);
-        }
     }
 }
