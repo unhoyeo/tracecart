@@ -1,0 +1,48 @@
+@baseUrl = http://localhost:8080
+
+### 대상 브랜치와 실행 설정
+# BEFORE: experiment/before-task-decorator-restore
+# AFTER: main
+# IntelliJ Active profiles: local,mdc-async-repro
+# 비동기 스레드를 1개로 제한해 A와 B 알림이 반드시 같은 notification 스레드를 사용하게 합니다.
+
+### A 비동기 작업: 선택적 요청 사용자 ID를 풀 스레드에 전달
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+X-Trace-Id: decorator-request-a-0001
+X-User-Id: header-user-A
+
+{
+  "userId": "order-user-A",
+  "productId": 1,
+  "quantity": 1,
+  "paymentScenario": "SUCCESS"
+}
+
+> {%
+    client.test("TaskDecorator A 주문 생성 성공", function () {
+        client.assert(response.status === 201);
+    });
+%}
+
+### B 비동기 작업: X-User-Id가 없는 다른 사용자 요청
+# OrderPaidNotificationListener의 "Async order notification received" 로그를 비교합니다.
+# BEFORE: B의 notification-1 진입 로그에 이전 작업의 header-user-A가 붙습니다.
+# AFTER(main): B의 notification-1 진입 로그에는 userId가 없습니다.
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+X-Trace-Id: decorator-request-b-0002
+
+{
+  "userId": "order-user-B",
+  "productId": 1,
+  "quantity": 1,
+  "paymentScenario": "SUCCESS"
+}
+
+> {%
+    client.test("TaskDecorator B 주문 생성 성공", function () {
+        client.assert(response.status === 201);
+        client.assert(response.body.userId === "order-user-B");
+    });
+%}
