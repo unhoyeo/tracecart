@@ -1,0 +1,14 @@
+# MDC 장애 재현 시 스레드 재사용을 결정적으로 만들기 위한 보조 프로파일입니다.
+server:
+  tomcat:
+    threads:
+      # 모든 HTTP 요청이 같은 Tomcat 스레드를 사용하게 합니다.
+      max: 1
+      min-spare: 1
+
+app:
+  async:
+    # 모든 비동기 알림이 같은 풀 스레드를 사용하게 합니다.
+    core-pool-size: 1
+    max-pool-size: 1
+    queue-capacity: 100
