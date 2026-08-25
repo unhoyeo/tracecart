@@ -1,6 +1,5 @@
 package com.example.tracecart.common.config;
 
-import com.example.tracecart.common.logging.MdcTaskDecorator;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskExecutor;
@@ -20,8 +19,7 @@ public class AsyncConfig {
         executor.setCorePoolSize(config.corePoolSize());
         executor.setMaxPoolSize(config.maxPoolSize());
         executor.setQueueCapacity(config.queueCapacity());
-        // 요청 스레드의 MDC를 비동기 스레드로 복사하는 장식을 모든 작업에 적용합니다.
-        executor.setTaskDecorator(new MdcTaskDecorator());
+        // BEFORE: TaskDecorator가 없어 요청 스레드의 MDC가 @Async 작업으로 전달되지 않습니다.
         // 애플리케이션 종료 시 실행 중인 알림 작업을 가능한 한 마치도록 기다립니다.
         executor.setWaitForTasksToCompleteOnShutdown(true);
         executor.setAwaitTerminationSeconds(10);
