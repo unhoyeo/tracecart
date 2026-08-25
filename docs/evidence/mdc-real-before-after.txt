@@ -1,0 +1,38 @@
+[실행 조건]
+2026-08-25
+SPRING_PROFILES_ACTIVE=local,mdc-repro
+HTTP 스레드 1개, 비동기 스레드 1개
+
+[1. 요청 스레드 재사용 오염]
+BEFORE experiment/before-mdc-thread-cleanup
+12:52:34.462 INFO  [http-nio-28080-exec-1] [traceId=thread-user-a-0001 orderId= userId=user-A-0001] c.e.t.common.logging.TraceIdFilter - HTTP request started
+12:52:34.548 INFO  [http-nio-28080-exec-1] [traceId=thread-user-b-0002 orderId= userId=user-A-0001] c.e.t.common.logging.TraceIdFilter - HTTP request started
+
+AFTER main
+12:53:50.212 INFO  [http-nio-28080-exec-1] [traceId=thread-user-a-0001 orderId= userId=user-A-0001] c.e.t.common.logging.TraceIdFilter - HTTP request started
+12:53:50.306 INFO  [http-nio-28080-exec-1] [traceId=thread-user-b-0002 orderId= userId=] c.e.t.common.logging.TraceIdFilter - HTTP request started
+
+[2. MdcScope 누락으로 너무 오래 유지되는 주문 컨텍스트]
+BEFORE experiment/before-mdc-scope
+12:53:09.003 INFO  [http-nio-28080-exec-1] [traceId=scope-order-0003 orderId=1 userId=body-user-0003] c.e.t.common.logging.TraceIdFilter - HTTP request completed
+
+AFTER main
+12:53:50.458 INFO  [http-nio-28080-exec-1] [traceId=scope-order-0003 orderId= userId=] c.e.t.common.logging.TraceIdFilter - HTTP request completed
+
+[3. @Async MDC 전파 실패]
+BEFORE experiment/before-async-propagation
+12:51:55.395 INFO  [notification-1] [traceId= orderId= userId=] c.e.t.n.OrderPaidNotificationListener - Async order notification received
+12:51:55.395 INFO  [notification-1] [traceId= orderId=1 userId=async-user-0004] c.e.t.n.NotificationService - Order completion notification sent: orderId=1, recipient=async-user-0004
+
+AFTER main
+12:53:50.531 INFO  [notification-1] [traceId=async-order-0004 orderId= userId=] c.e.t.n.OrderPaidNotificationListener - Async order notification received
+12:53:50.532 INFO  [notification-1] [traceId=async-order-0004 orderId=2 userId=async-user-0004] c.e.t.n.NotificationService - Order completion notification sent: orderId=2, recipient=async-user-0004
+
+[4. 복원 없는 TaskDecorator의 풀 스레드 오염]
+BEFORE experiment/before-task-decorator-restore
+12:51:19.826 INFO  [notification-1] [traceId=decorator-user-a-0005 orderId= userId=header-user-A] c.e.t.n.OrderPaidNotificationListener - Async order notification received
+12:51:19.916 INFO  [notification-1] [traceId=decorator-user-b-0006 orderId= userId=header-user-A] c.e.t.n.OrderPaidNotificationListener - Async order notification received
+
+AFTER main
+12:53:50.606 INFO  [notification-1] [traceId=decorator-user-a-0005 orderId= userId=header-user-A] c.e.t.n.OrderPaidNotificationListener - Async order notification received
+12:53:50.682 INFO  [notification-1] [traceId=decorator-user-b-0006 orderId= userId=] c.e.t.n.OrderPaidNotificationListener - Async order notification received

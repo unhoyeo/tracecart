@@ -1,0 +1,27 @@
+@baseUrl = http://localhost:8080
+
+### 대상 브랜치와 실행 설정
+# BEFORE: experiment/before-async-propagation
+# AFTER: main
+# IntelliJ Active profiles: local
+# 비동기 스레드로 전환되는 것 자체가 핵심이므로 스레드 수를 제한하지 않습니다.
+
+### 주문 요청과 비동기 알림의 traceId 연결 확인
+# BEFORE: HTTP 로그에는 async-trace-0001이 있지만 notification-* 로그에는 traceId가 없습니다.
+# AFTER: HTTP 로그와 notification-* 로그 모두 같은 traceId를 가집니다.
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+X-Trace-Id: async-trace-0001
+
+{
+  "userId": "async-user-0001",
+  "productId": 1,
+  "quantity": 1,
+  "paymentScenario": "SUCCESS"
+}
+
+> {%
+    client.test("비동기 추적 비교용 주문 생성 성공", function () {
+        client.assert(response.status === 201);
+    });
+%}
