@@ -1,7 +1,6 @@
 package com.example.tracecart.order.application;
 
 import com.example.tracecart.common.exception.BusinessException;
-import com.example.tracecart.common.logging.MdcScope;
 import com.example.tracecart.notification.OrderPaidEvent;
 import com.example.tracecart.order.api.CreateOrderRequest;
 import com.example.tracecart.order.api.OrderResponse;
@@ -16,6 +15,7 @@ import com.example.tracecart.product.ProductRepository;
 import java.math.BigDecimal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -44,45 +44,42 @@ public class OrderService {
 
     @Transactional
     public OrderResponse create(CreateOrderRequest request) {
-        // 메서드 전체 로그에 사용자 ID가 붙고 종료 후 이전 MDC 상태가 자동 복구됩니다.
-        try (MdcScope ignored = MdcScope.with("userId", request.userId())) {
-            Product product = productRepository.findById(request.productId())
-                    .orElseThrow(() -> new BusinessException(
-                            HttpStatus.NOT_FOUND,
-                            "PRODUCT_NOT_FOUND",
-                            "상품을 찾을 수 없습니다."
-                    ));
+        // BEFORE: 값을 넣기만 하고 메서드가 끝난 뒤 제거하거나 이전 값으로 복원하지 않습니다.
+        MDC.put("userId", request.userId());
+        Product product = productRepository.findById(request.productId())
+                .orElseThrow(() -> new BusinessException(
+                        HttpStatus.NOT_FOUND,
+                        "PRODUCT_NOT_FOUND",
+                        "상품을 찾을 수 없습니다."
+                ));
 
-            product.decreaseStock(request.quantity());
-            BigDecimal totalPrice = product.getPrice().multiply(BigDecimal.valueOf(request.quantity()));
-            // 아직 결제 전인 PENDING 주문을 만들고 즉시 데이터베이스에 INSERT합니다.
-            PurchaseOrder order = orderRepository.saveAndFlush(
-                    new PurchaseOrder(request.userId(), product.getId(), request.quantity(), totalPrice)
-            );
+        product.decreaseStock(request.quantity());
+        BigDecimal totalPrice = product.getPrice().multiply(BigDecimal.valueOf(request.quantity()));
+        // 아직 결제 전인 PENDING 주문을 만들고 즉시 데이터베이스에 INSERT합니다.
+        PurchaseOrder order = orderRepository.saveAndFlush(
+                new PurchaseOrder(request.userId(), product.getId(), request.quantity(), totalPrice)
+        );
 
-            // INSERT로 생성된 주문 ID를 이후 모든 결제와 알림 로그의 MDC에 넣습니다.
-            try (MdcScope ignored2 = MdcScope.with("orderId", order.getId())) {
-                log.info("Order created: productId={}, quantity={}, totalPrice={}",
-                        product.getId(), request.quantity(), totalPrice);
-                processPayment(order, product, request);
-                return OrderResponse.from(order);
-            }
-        }
+        // BEFORE: 주문 처리 뒤에도 orderId가 같은 요청 스레드의 MDC에 남습니다.
+        MDC.put("orderId", String.valueOf(order.getId()));
+        log.info("Order created: productId={}, quantity={}, totalPrice={}",
+                product.getId(), request.quantity(), totalPrice);
+        processPayment(order, product, request);
+        return OrderResponse.from(order);
     }
 
     @Transactional(readOnly = true)
     public OrderResponse findById(Long orderId) {
-        // 단건 조회 로그에도 찾으려는 주문 ID를 붙이고 종료 시 자동 제거합니다.
-        try (MdcScope ignored = MdcScope.with("orderId", orderId)) {
-            PurchaseOrder order = orderRepository.findById(orderId)
-                    .orElseThrow(() -> new BusinessException(
-                            HttpStatus.NOT_FOUND,
-                            "ORDER_NOT_FOUND",
-                            "주문을 찾을 수 없습니다."
-                    ));
-            log.debug("Order found");
-            return OrderResponse.from(order);
-        }
+        // BEFORE: 조회가 끝난 뒤에도 orderId를 제거하지 않습니다.
+        MDC.put("orderId", String.valueOf(orderId));
+        PurchaseOrder order = orderRepository.findById(orderId)
+                .orElseThrow(() -> new BusinessException(
+                        HttpStatus.NOT_FOUND,
+                        "ORDER_NOT_FOUND",
+                        "주문을 찾을 수 없습니다."
+                ));
+        log.debug("Order found");
+        return OrderResponse.from(order);
     }
 
     // create 메서드에서 결제 결과에 따라 주문과 재고를 바꾸는 내부 단계입니다.
