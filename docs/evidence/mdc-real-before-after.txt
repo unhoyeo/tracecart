@@ -1,38 +1,49 @@
 [실행 조건]
 2026-08-25
-SPRING_PROFILES_ACTIVE=local,mdc-repro
-HTTP 스레드 1개, 비동기 스레드 1개
+각 항목은 전용 HTTP 파일과 해당 파일 상단의 Active profiles로 실행했습니다.
 
-[1. 요청 스레드 재사용 오염]
+[1. 요청 스레드 재사용으로 인한 개인정보 오염]
 BEFORE experiment/before-mdc-thread-cleanup
-12:52:34.462 INFO  [http-nio-28080-exec-1] [traceId=thread-user-a-0001 orderId= userId=user-A-0001] c.e.t.common.logging.TraceIdFilter - HTTP request started
-12:52:34.548 INFO  [http-nio-28080-exec-1] [traceId=thread-user-b-0002 orderId= userId=user-A-0001] c.e.t.common.logging.TraceIdFilter - HTTP request started
+13:21:22.328 INFO  [http-nio-28080-exec-1] [traceId=privacy-request-a-0001 orderId= userId=user-A-0001] c.e.t.common.logging.TraceIdFilter - HTTP request started
+13:21:22.407 INFO  [http-nio-28080-exec-1] [traceId=privacy-request-b-0002 orderId= userId=user-A-0001] c.e.t.common.logging.TraceIdFilter - HTTP request started
+13:21:22.466 INFO  [http-nio-28080-exec-1] [traceId=privacy-request-b-0002 orderId=1 userId=user-B-0002] c.e.t.order.application.OrderService - Order created: productId=1, quantity=1, totalPrice=129000.00
+13:21:22.525 INFO  [notification-1] [traceId=privacy-request-b-0002 orderId= userId=user-A-0001] c.e.t.n.OrderPaidNotificationListener - Async order notification received
+13:21:22.530 INFO  [http-nio-28080-exec-1] [traceId=privacy-request-b-0002 orderId= userId=user-A-0001] c.e.t.common.logging.TraceIdFilter - HTTP request completed
 
 AFTER main
-12:53:50.212 INFO  [http-nio-28080-exec-1] [traceId=thread-user-a-0001 orderId= userId=user-A-0001] c.e.t.common.logging.TraceIdFilter - HTTP request started
-12:53:50.306 INFO  [http-nio-28080-exec-1] [traceId=thread-user-b-0002 orderId= userId=] c.e.t.common.logging.TraceIdFilter - HTTP request started
+13:22:03.262 INFO  [http-nio-28080-exec-1] [traceId=privacy-request-a-0001 orderId= userId=user-A-0001] c.e.t.common.logging.TraceIdFilter - HTTP request started
+13:22:03.366 INFO  [http-nio-28080-exec-1] [traceId=privacy-request-b-0002 orderId= userId=] c.e.t.common.logging.TraceIdFilter - HTTP request started
+13:22:03.437 INFO  [http-nio-28080-exec-1] [traceId=privacy-request-b-0002 orderId=1 userId=user-B-0002] c.e.t.order.application.OrderService - Order created: productId=1, quantity=1, totalPrice=129000.00
+13:22:03.504 INFO  [notification-1] [traceId=privacy-request-b-0002 orderId= userId=] c.e.t.n.OrderPaidNotificationListener - Async order notification received
+13:22:03.521 INFO  [http-nio-28080-exec-1] [traceId=privacy-request-b-0002 orderId= userId=] c.e.t.common.logging.TraceIdFilter - HTTP request completed
 
-[2. MdcScope 누락으로 너무 오래 유지되는 주문 컨텍스트]
+[2. MdcScope 누락으로 인한 요청 주체 오기록]
 BEFORE experiment/before-mdc-scope
-12:53:09.003 INFO  [http-nio-28080-exec-1] [traceId=scope-order-0003 orderId=1 userId=body-user-0003] c.e.t.common.logging.TraceIdFilter - HTTP request completed
+13:22:55.623 INFO  [http-nio-28080-exec-1] [traceId=scope-restore-0001 orderId= userId=authenticated-user-0001] c.e.t.common.logging.TraceIdFilter - HTTP request started
+13:22:55.734 INFO  [http-nio-28080-exec-1] [traceId=scope-restore-0001 orderId=1 userId=order-user-0001] c.e.t.order.application.OrderService - Order created: productId=1, quantity=1, totalPrice=129000.00
+13:22:55.818 INFO  [http-nio-28080-exec-1] [traceId=scope-restore-0001 orderId=1 userId=order-user-0001] c.e.t.common.logging.TraceIdFilter - HTTP request completed
 
 AFTER main
-12:53:50.458 INFO  [http-nio-28080-exec-1] [traceId=scope-order-0003 orderId= userId=] c.e.t.common.logging.TraceIdFilter - HTTP request completed
+13:22:20.356 INFO  [http-nio-28080-exec-1] [traceId=scope-restore-0001 orderId= userId=authenticated-user-0001] c.e.t.common.logging.TraceIdFilter - HTTP request started
+13:22:20.382 INFO  [http-nio-28080-exec-1] [traceId=scope-restore-0001 orderId=2 userId=order-user-0001] c.e.t.order.application.OrderService - Order created: productId=1, quantity=1, totalPrice=129000.00
+13:22:20.450 INFO  [http-nio-28080-exec-1] [traceId=scope-restore-0001 orderId= userId=authenticated-user-0001] c.e.t.common.logging.TraceIdFilter - HTTP request completed
 
 [3. @Async MDC 전파 실패]
 BEFORE experiment/before-async-propagation
-12:51:55.395 INFO  [notification-1] [traceId= orderId= userId=] c.e.t.n.OrderPaidNotificationListener - Async order notification received
-12:51:55.395 INFO  [notification-1] [traceId= orderId=1 userId=async-user-0004] c.e.t.n.NotificationService - Order completion notification sent: orderId=1, recipient=async-user-0004
+13:24:17.779 INFO  [http-nio-28080-exec-1] [traceId=async-trace-0001 orderId= userId=] c.e.t.common.logging.TraceIdFilter - HTTP request started
+13:24:17.949 INFO  [notification-1] [traceId= orderId= userId=] c.e.t.n.OrderPaidNotificationListener - Async order notification received
+13:24:17.949 INFO  [notification-1] [traceId= orderId=1 userId=async-user-0001] c.e.t.n.NotificationService - Order completion notification sent: orderId=1, recipient=async-user-0001
 
 AFTER main
-12:53:50.531 INFO  [notification-1] [traceId=async-order-0004 orderId= userId=] c.e.t.n.OrderPaidNotificationListener - Async order notification received
-12:53:50.532 INFO  [notification-1] [traceId=async-order-0004 orderId=2 userId=async-user-0004] c.e.t.n.NotificationService - Order completion notification sent: orderId=2, recipient=async-user-0004
+13:24:55.051 INFO  [http-nio-28080-exec-1] [traceId=async-trace-0001 orderId= userId=] c.e.t.common.logging.TraceIdFilter - HTTP request started
+13:24:55.218 INFO  [notification-1] [traceId=async-trace-0001 orderId= userId=] c.e.t.n.OrderPaidNotificationListener - Async order notification received
+13:24:55.219 INFO  [notification-1] [traceId=async-trace-0001 orderId=1 userId=async-user-0001] c.e.t.n.NotificationService - Order completion notification sent: orderId=1, recipient=async-user-0001
 
 [4. 복원 없는 TaskDecorator의 풀 스레드 오염]
 BEFORE experiment/before-task-decorator-restore
-12:51:19.826 INFO  [notification-1] [traceId=decorator-user-a-0005 orderId= userId=header-user-A] c.e.t.n.OrderPaidNotificationListener - Async order notification received
-12:51:19.916 INFO  [notification-1] [traceId=decorator-user-b-0006 orderId= userId=header-user-A] c.e.t.n.OrderPaidNotificationListener - Async order notification received
+13:25:28.684 INFO  [notification-1] [traceId=decorator-request-a-0001 orderId= userId=header-user-A] c.e.t.n.OrderPaidNotificationListener - Async order notification received
+13:25:28.771 INFO  [notification-1] [traceId=decorator-request-b-0002 orderId= userId=header-user-A] c.e.t.n.OrderPaidNotificationListener - Async order notification received
 
 AFTER main
-12:53:50.606 INFO  [notification-1] [traceId=decorator-user-a-0005 orderId= userId=header-user-A] c.e.t.n.OrderPaidNotificationListener - Async order notification received
-12:53:50.682 INFO  [notification-1] [traceId=decorator-user-b-0006 orderId= userId=] c.e.t.n.OrderPaidNotificationListener - Async order notification received
+13:26:05.754 INFO  [notification-1] [traceId=decorator-request-a-0001 orderId= userId=header-user-A] c.e.t.n.OrderPaidNotificationListener - Async order notification received
+13:26:05.845 INFO  [notification-1] [traceId=decorator-request-b-0002 orderId= userId=] c.e.t.n.OrderPaidNotificationListener - Async order notification received
