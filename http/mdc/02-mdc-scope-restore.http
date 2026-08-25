@@ -1,0 +1,37 @@
+@baseUrl = http://localhost:8080
+
+### 대상 브랜치와 실행 설정
+# BEFORE: experiment/before-mdc-scope
+# AFTER: main
+# IntelliJ Active profiles: local
+# 이 실험은 한 요청 안의 MDC 범위를 비교하므로 스레드 수를 제한하지 않습니다.
+
+### 요청 주체와 주문 사용자가 다른 주문
+# X-User-Id는 접근 로그에서 유지해야 할 요청 주체입니다.
+# body.userId는 OrderService 안에서만 잠시 사용할 주문 사용자입니다.
+#
+# BEFORE의 HTTP request completed:
+# userId=order-user-0001 orderId=1
+# → 서비스가 요청 주체를 덮어쓰고 복원하지 않아 접근 로그의 주체가 잘못 기록됩니다.
+#
+# AFTER(main)의 HTTP request completed:
+# userId=authenticated-user-0001 orderId=
+# → MdcScope가 서비스 진입 전 요청 컨텍스트를 복원합니다.
+POST {{baseUrl}}/api/orders
+Content-Type: application/json
+X-Trace-Id: scope-restore-0001
+X-User-Id: authenticated-user-0001
+
+{
+  "userId": "order-user-0001",
+  "productId": 1,
+  "quantity": 1,
+  "paymentScenario": "SUCCESS"
+}
+
+> {%
+    client.test("주문 사용자는 order-user", function () {
+        client.assert(response.status === 201);
+        client.assert(response.body.userId === "order-user-0001");
+    });
+%}
